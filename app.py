@@ -7,7 +7,7 @@ import streamlit.components.v1 as components
 from plotly.subplots import make_subplots
 from ta.momentum import RSIIndicator
 from ta.volatility import BollingerBands, AverageTrueRange
-from ta.trend import EMAIndicator
+from ta.trend import EMAIndicator, MACD, ADXIndicator
 
 # --- Page Config ---
 st.set_page_config(page_title="AI Trading Terminal", layout="wide")
@@ -36,6 +36,24 @@ def get_data(symbol: str, period: str, interval: str):
     if isinstance(dxy.columns, pd.MultiIndex):
         dxy.columns = dxy.columns.get_level_values(0)
     return data, dxy
+
+
+@st.cache_data(ttl=60)
+def get_market_context(period: str, interval: str):
+    # Key intermarket drivers for gold
+    symbols = {
+        "dxy": "DX-Y.NYB",
+        "us10y": "^TNX",
+        "silver": "SI=F",
+        "copper": "HG=F",
+    }
+    out = {}
+    for key, ticker in symbols.items():
+        ctx_df = yf.download(ticker, period=period, interval=interval)
+        if isinstance(ctx_df.columns, pd.MultiIndex):
+            ctx_df.columns = ctx_df.columns.get_level_values(0)
+        out[key] = ctx_df
+    return out
 
 @st.cache_data(ttl=300)
 def get_higher_timeframe(symbol: str, base_interval: str):
@@ -67,6 +85,24 @@ def calculate_patterns(df: pd.DataFrame) -> pd.DataFrame:
 def calc_obv(close: pd.Series, volume: pd.Series) -> pd.Series:
     direction = np.sign(close.diff()).fillna(0)
     return (direction * volume).fillna(0).cumsum()
+
+
+def safe_last(series: pd.Series, default: float = 0.0) -> float:
+    valid = series.dropna()
+    if valid.empty:
+        return default
+    return float(valid.iloc[-1])
+
+
+def pct_change_n(series: pd.Series, n: int) -> float:
+    valid = series.dropna()
+    if len(valid) <= n:
+        return 0.0
+    prev = float(valid.iloc[-(n + 1)])
+    curr = float(valid.iloc[-1])
+    if prev == 0:
+        return 0.0
+    return (curr / prev - 1.0) * 100.0
 
 # --- i18n ---
 TEXT = {
@@ -204,6 +240,7 @@ period_map = {
     "1d": "5y",
 }
 df, dxy = get_data(asset_name, period_map.get(timeframe, "120d"), timeframe)
+market_ctx = get_market_context(period_map.get(timeframe, "120d"), timeframe)
 
 if not df.empty:
     df = calculate_patterns(df)
@@ -216,6 +253,11 @@ if not df.empty:
     rsi = RSIIndicator(close).rsi()
     ema50 = EMAIndicator(close, window=50).ema_indicator()
     ema200 = EMAIndicator(close, window=200).ema_indicator()
+    ema20 = EMAIndicator(close, window=20).ema_indicator()
+    macd_line = MACD(close).macd()
+    macd_signal = MACD(close).macd_signal()
+    macd_hist = MACD(close).macd_diff()
+    adx = ADXIndicator(high, low, close).adx()
     atr = AverageTrueRange(high, low, close).average_true_range()
     bb = BollingerBands(close)
     obv = calc_obv(close, volume)
@@ -223,6 +265,8 @@ if not df.empty:
     curr_price = float(close.iloc[-1])
     curr_rsi = float(rsi.iloc[-1])
     curr_atr = float(atr.iloc[-1])
+    curr_adx = safe_last(adx)
+    curr_macd_hist = safe_last(macd_hist)
 
     ema50_slope = float(ema50.iloc[-1] - ema50.iloc[-2]) if len(ema50.dropna()) > 2 else 0.0
     obv_slope = float(obv.iloc[-1] - obv.iloc[-2]) if len(obv.dropna()) > 2 else 0.0
@@ -245,61 +289,142 @@ if not df.empty:
         if len(common_idx) > 3:
             correlation = float(df.loc[common_idx]["Close"].corr(dxy.loc[common_idx]["Close"]))
 
-    # --- Signal Logic ---
-    score = 0
-    reasons = []
+    # --- Multi-factor Signal Engine ---
+    long_pts = 0.0
+    short_pts = 0.0
+    bullish_reasons = []
+    bearish_reasons = []
 
-    if curr_price > ema50.iloc[-1]:
-        score += 1
-        reasons.append("Price above EMA50")
-    else:
-        score -= 1
-        reasons.append("Price below EMA50")
-
-    if curr_price > ema200.iloc[-1]:
-        score += 1
-        reasons.append("Price above EMA200")
-    else:
-        score -= 1
-        reasons.append("Price below EMA200")
+    # 1) Trend structure
+    if safe_last(ema20) > safe_last(ema50) > safe_last(ema200):
+        long_pts += 18
+        bullish_reasons.append("Bull trend stack: EMA20 > EMA50 > EMA200")
+    elif safe_last(ema20) < safe_last(ema50) < safe_last(ema200):
+        short_pts += 18
+        bearish_reasons.append("Bear trend stack: EMA20 < EMA50 < EMA200")
 
     if ema50_slope > 0:
-        score += 1
-        reasons.append("EMA50 slope positive")
+        long_pts += 8
+        bullish_reasons.append("EMA50 slope is positive")
     else:
-        score -= 1
-        reasons.append("EMA50 slope negative")
+        short_pts += 8
+        bearish_reasons.append("EMA50 slope is negative")
 
-    if curr_rsi < 35:
-        score += 1
-        reasons.append("RSI oversold")
-    elif curr_rsi > 65:
-        score -= 1
-        reasons.append("RSI overbought")
+    if curr_adx >= 25:
+        if curr_price > safe_last(ema50):
+            long_pts += 8
+            bullish_reasons.append(f"ADX {curr_adx:.1f}: trend strength supports upside")
+        else:
+            short_pts += 8
+            bearish_reasons.append(f"ADX {curr_adx:.1f}: trend strength supports downside")
 
+    # 2) Momentum
+    if curr_rsi > 55:
+        long_pts += 8
+        bullish_reasons.append("RSI regime > 55")
+    elif curr_rsi < 45:
+        short_pts += 8
+        bearish_reasons.append("RSI regime < 45")
+
+    if curr_macd_hist > 0:
+        long_pts += 8
+        bullish_reasons.append("MACD histogram positive")
+    else:
+        short_pts += 8
+        bearish_reasons.append("MACD histogram negative")
+
+    # 3) Volatility + structure
+    rolling_high = safe_last(high.rolling(20).max(), default=curr_price)
+    rolling_low = safe_last(low.rolling(20).min(), default=curr_price)
+    if curr_price >= rolling_high:
+        long_pts += 10
+        bullish_reasons.append("20-bar breakout to upside")
+    elif curr_price <= rolling_low:
+        short_pts += 10
+        bearish_reasons.append("20-bar breakout to downside")
+
+    bb_mid = safe_last(bb.bollinger_mavg(), default=curr_price)
+    if curr_price > bb_mid:
+        long_pts += 4
+        bullish_reasons.append("Price above Bollinger midline")
+    else:
+        short_pts += 4
+        bearish_reasons.append("Price below Bollinger midline")
+
+    # 4) Flow / participation
     if obv_slope > 0:
-        score += 1
-        reasons.append("OBV rising")
+        long_pts += 6
+        bullish_reasons.append("OBV rising (buy-side flow)")
     else:
-        score -= 1
-        reasons.append("OBV falling")
+        short_pts += 6
+        bearish_reasons.append("OBV falling (sell-side flow)")
 
+    # 5) Intermarket dependencies (gold drivers)
+    dxy_ret = pct_change_n(dxy["Close"].squeeze(), 5) if not dxy.empty and "Close" in dxy.columns else 0.0
+    us10y_df = market_ctx.get("us10y", pd.DataFrame())
+    us10y_ret = pct_change_n(us10y_df["Close"].squeeze(), 5) if not us10y_df.empty and "Close" in us10y_df.columns else 0.0
+    silver_df = market_ctx.get("silver", pd.DataFrame())
+    silver_ret = pct_change_n(silver_df["Close"].squeeze(), 5) if not silver_df.empty and "Close" in silver_df.columns else 0.0
+    copper_df = market_ctx.get("copper", pd.DataFrame())
+    copper_ret = pct_change_n(copper_df["Close"].squeeze(), 5) if not copper_df.empty and "Close" in copper_df.columns else 0.0
+
+    if dxy_ret < 0:
+        long_pts += 8
+        bullish_reasons.append(f"DXY weakening ({dxy_ret:.2f}% / 5 bars)")
+    elif dxy_ret > 0:
+        short_pts += 8
+        bearish_reasons.append(f"DXY strengthening ({dxy_ret:.2f}% / 5 bars)")
+
+    if us10y_ret < 0:
+        long_pts += 7
+        bullish_reasons.append(f"US10Y yield falling ({us10y_ret:.2f}% / 5 bars)")
+    elif us10y_ret > 0:
+        short_pts += 7
+        bearish_reasons.append(f"US10Y yield rising ({us10y_ret:.2f}% / 5 bars)")
+
+    if silver_ret > 0:
+        long_pts += 5
+        bullish_reasons.append(f"Silver confirms metals strength ({silver_ret:.2f}%)")
+    elif silver_ret < 0:
+        short_pts += 5
+        bearish_reasons.append(f"Silver confirms metals weakness ({silver_ret:.2f}%)")
+
+    if copper_ret > 0:
+        long_pts += 2
+        bullish_reasons.append("Copper risk-on support")
+    elif copper_ret < 0:
+        short_pts += 2
+        bearish_reasons.append("Copper risk-off pressure")
+
+    # 6) Higher timeframe confirmation
     if ht_trend == "UP":
-        score += 1
-        reasons.append(f"Higher TF ({higher_tf}) uptrend")
+        long_pts += 8
+        bullish_reasons.append(f"Higher TF ({higher_tf}) trend is up")
     elif ht_trend == "DOWN":
-        score -= 1
-        reasons.append(f"Higher TF ({higher_tf}) downtrend")
+        short_pts += 8
+        bearish_reasons.append(f"Higher TF ({higher_tf}) trend is down")
+
+    net_score = long_pts - short_pts
+    bias_score = max(-100.0, min(100.0, net_score))
+    confidence = min(99.0, abs(bias_score) * 0.85 + (5 if curr_adx >= 25 else 0))
 
     signal = "NEUTRAL"
-    if score >= 2:
+    if bias_score >= 35:
+        signal = "STRONG BUY"
+    elif bias_score >= 12:
         signal = "BUY"
-    elif score <= -2:
+    elif bias_score <= -35:
+        signal = "STRONG SELL"
+    elif bias_score <= -12:
         signal = "SELL"
 
     # --- Risk Management ---
-    sl = curr_price - (atr_mult * curr_atr) if signal == "BUY" else curr_price + (atr_mult * curr_atr)
-    tp = curr_price + (rr_ratio * atr_mult * curr_atr) if signal == "BUY" else curr_price - (rr_ratio * atr_mult * curr_atr)
+    is_long = signal in ["BUY", "STRONG BUY"]
+    sl = curr_price - (atr_mult * curr_atr) if is_long else curr_price + (atr_mult * curr_atr)
+    tp = curr_price + (rr_ratio * atr_mult * curr_atr) if is_long else curr_price - (rr_ratio * atr_mult * curr_atr)
+    tp2 = curr_price + ((rr_ratio + 1.0) * atr_mult * curr_atr) if is_long else curr_price - ((rr_ratio + 1.0) * atr_mult * curr_atr)
+    entry_low = curr_price - (0.25 * curr_atr)
+    entry_high = curr_price + (0.25 * curr_atr)
 
     risk_amt = acc_balance * (risk_pct / 100.0)
     risk_per_unit = abs(curr_price - sl) * contract_size
@@ -313,27 +438,31 @@ if not df.empty:
     c2.metric(T["rsi"], f"{curr_rsi:.2f}")
     c3.metric(T["atr"], f"{curr_atr:.2f}")
     c4.metric(T["dxy"], f"{curr_dxy:.2f}")
-    c5.metric(T["corr"], f"{correlation:.2f}")
+    c5.metric("Confidence", f"{confidence:.0f}%")
 
     c6, c7, c8 = st.columns([1.2, 1, 1])
     with c6:
-        if signal == "BUY":
-            st.markdown(f"<div class='signal-buy'><h3>{T['signal_buy']}</h3><p>Score: {score}</p></div>", unsafe_allow_html=True)
-        elif signal == "SELL":
-            st.markdown(f"<div class='signal-sell'><h3>{T['signal_sell']}</h3><p>Score: {score}</p></div>", unsafe_allow_html=True)
+        if signal in ["BUY", "STRONG BUY"]:
+            st.markdown(f"<div class='signal-buy'><h3>{signal}</h3><p>Bias score: {bias_score:.1f}</p></div>", unsafe_allow_html=True)
+        elif signal in ["SELL", "STRONG SELL"]:
+            st.markdown(f"<div class='signal-sell'><h3>{signal}</h3><p>Bias score: {bias_score:.1f}</p></div>", unsafe_allow_html=True)
         else:
-            st.markdown(f"<div class='signal-neutral'><h3>{T['signal_wait']}</h3><p>Score: {score}</p></div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='signal-neutral'><h3>{T['signal_wait']}</h3><p>Bias score: {bias_score:.1f}</p></div>", unsafe_allow_html=True)
 
     with c7:
         st.subheader(T["risk"])
         st.write(f"{T['risk_amount']}: ${risk_amt:.2f}")
         st.write(f"{T['lot_size']}: {lot_size:.3f}")
+        st.write(f"Entry zone: {entry_low:,.2f} - {entry_high:,.2f}")
+        st.write(f"ADX: {curr_adx:.1f} | MACD hist: {curr_macd_hist:.3f}")
 
     with c8:
         st.subheader(T["targets"])
         st.write(f"{T['tp']}: {tp:,.2f}")
+        st.write(f"TP2: {tp2:,.2f}")
         st.write(f"{T['sl']}: {sl:,.2f}")
         st.write(T["rr_fmt"].format(rr=rr_ratio))
+        st.write(f"Corr(DXY): {correlation:.2f}")
 
     # --- Chart ---
     if chart_mode == T["chart_tv"]:
@@ -389,16 +518,21 @@ if not df.empty:
 
         # TP/SL lines
         fig.add_hline(y=tp, line_dash="dash", line_color="green", row=1, col=1)
+        fig.add_hline(y=tp2, line_dash="dot", line_color="green", row=1, col=1)
         fig.add_hline(y=sl, line_dash="dash", line_color="red", row=1, col=1)
 
         # Entry marker
-        if signal in ["BUY", "SELL"]:
+        if signal in ["BUY", "STRONG BUY", "SELL", "STRONG SELL"]:
             fig.add_trace(
                 go.Scatter(
                     x=[df.index[-1]],
                     y=[curr_price],
                     mode="markers",
-                    marker=dict(size=12, color="lime" if signal == "BUY" else "red", symbol="triangle-up" if signal == "BUY" else "triangle-down"),
+                    marker=dict(
+                        size=12,
+                        color="lime" if signal in ["BUY", "STRONG BUY"] else "red",
+                        symbol="triangle-up" if signal in ["BUY", "STRONG BUY"] else "triangle-down",
+                    ),
                     name="Entry",
                 ),
                 row=1,
@@ -435,9 +569,15 @@ if not df.empty:
         st.plotly_chart(fig, use_container_width=True)
 
     with st.expander(T["logic"]):
-        for reason in reasons:
+        st.write("Bullish factors:")
+        for reason in bullish_reasons[:8]:
+            st.write(f"- {reason}")
+        st.write("Bearish factors:")
+        for reason in bearish_reasons[:8]:
             st.write(f"- {reason}")
         st.write(f"- {T['higher_tf']}: {higher_tf} | {T['trend']}: {ht_trend}")
+        st.write(f"- DXY 5-bar return: {dxy_ret:.2f}% | US10Y 5-bar return: {us10y_ret:.2f}%")
+        st.write(f"- Silver 5-bar return: {silver_ret:.2f}% | Copper 5-bar return: {copper_ret:.2f}%")
 
     st.caption(f"{T['last_update']}: {pd.Timestamp.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC")
 
