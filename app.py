@@ -194,9 +194,21 @@ TEXT = {
         "method_macd": "MACD",
         "method_bollinger": "Bollinger",
         "method_fundamental": "Fundamental",
+        "method_signal_col": "Signal",
+        "method_conf_col": "Confidence",
+        "method_reason_col": "Reason",
         "sig_buy": "BUY",
         "sig_sell": "SELL",
-        "sig_neutral": "NEUTRAL"
+        "sig_neutral": "NEUTRAL",
+        "sig_strong_buy": "STRONG BUY",
+        "sig_strong_sell": "STRONG SELL",
+        "adx_macd": "ADX / MACD",
+        "corr_dxy": "Corr(DXY)",
+        "tp2": "TP2",
+        "buy_factors": "Bullish factors",
+        "sell_factors": "Bearish factors",
+        "dxy_us10y": "DXY and US10Y returns",
+        "silver_copper": "Silver and Copper returns"
     },
     "fa": {
         "settings": "تنظیمات",
@@ -252,15 +264,31 @@ TEXT = {
         "method_macd": "مکدی",
         "method_bollinger": "بولینگر",
         "method_fundamental": "فاندامنتال",
+        "method_signal_col": "سیگنال",
+        "method_conf_col": "اعتماد",
+        "method_reason_col": "دلیل",
         "sig_buy": "خرید",
         "sig_sell": "فروش",
-        "sig_neutral": "خنثی"
+        "sig_neutral": "خنثی",
+        "sig_strong_buy": "خرید قوی",
+        "sig_strong_sell": "فروش قوی",
+        "adx_macd": "ای‌دی‌ایکس / مکدی",
+        "corr_dxy": "همبستگی با DXY",
+        "tp2": "حد سود دوم",
+        "buy_factors": "فاکتورهای صعودی",
+        "sell_factors": "فاکتورهای نزولی",
+        "dxy_us10y": "بازده DXY و نرخ 10Y",
+        "silver_copper": "بازده نقره و مس"
     }
 }
 
 lang_choice = st.sidebar.selectbox(TEXT["en"]["lang"], ["فارسی", "English"], index=0)
 lang = "fa" if lang_choice == "فارسی" else "en"
 T = TEXT[lang]
+
+
+def tr(en_text: str, fa_text: str) -> str:
+    return fa_text if lang == "fa" else en_text
 
 # --- Sidebar ---
 st.sidebar.title(T["settings"])
@@ -362,66 +390,66 @@ if not df.empty:
     # 1) Trend structure
     if safe_last(ema20) > safe_last(ema50) > safe_last(ema200):
         long_pts += 18
-        bullish_reasons.append("Bull trend stack: EMA20 > EMA50 > EMA200")
+        bullish_reasons.append(tr("Bull trend stack: EMA20 > EMA50 > EMA200", "انباشت روند صعودی: EMA20 > EMA50 > EMA200"))
     elif safe_last(ema20) < safe_last(ema50) < safe_last(ema200):
         short_pts += 18
-        bearish_reasons.append("Bear trend stack: EMA20 < EMA50 < EMA200")
+        bearish_reasons.append(tr("Bear trend stack: EMA20 < EMA50 < EMA200", "انباشت روند نزولی: EMA20 < EMA50 < EMA200"))
 
     if ema50_slope > 0:
         long_pts += 8
-        bullish_reasons.append("EMA50 slope is positive")
+        bullish_reasons.append(tr("EMA50 slope is positive", "شیب EMA50 مثبت است"))
     else:
         short_pts += 8
-        bearish_reasons.append("EMA50 slope is negative")
+        bearish_reasons.append(tr("EMA50 slope is negative", "شیب EMA50 منفی است"))
 
     if curr_adx >= 25:
         if curr_price > safe_last(ema50):
             long_pts += 8
-            bullish_reasons.append(f"ADX {curr_adx:.1f}: trend strength supports upside")
+            bullish_reasons.append(tr(f"ADX {curr_adx:.1f}: trend strength supports upside", f"ADX {curr_adx:.1f}: قدرت روند از صعود حمایت می‌کند"))
         else:
             short_pts += 8
-            bearish_reasons.append(f"ADX {curr_adx:.1f}: trend strength supports downside")
+            bearish_reasons.append(tr(f"ADX {curr_adx:.1f}: trend strength supports downside", f"ADX {curr_adx:.1f}: قدرت روند از نزول حمایت می‌کند"))
 
     # 2) Momentum
     if curr_rsi > 55:
         long_pts += 8
-        bullish_reasons.append("RSI regime > 55")
+        bullish_reasons.append(tr("RSI regime > 55", "RSI در محدوده صعودی > 55"))
     elif curr_rsi < 45:
         short_pts += 8
-        bearish_reasons.append("RSI regime < 45")
+        bearish_reasons.append(tr("RSI regime < 45", "RSI در محدوده نزولی < 45"))
 
     if curr_macd_hist > 0:
         long_pts += 8
-        bullish_reasons.append("MACD histogram positive")
+        bullish_reasons.append(tr("MACD histogram positive", "هیستوگرام MACD مثبت است"))
     else:
         short_pts += 8
-        bearish_reasons.append("MACD histogram negative")
+        bearish_reasons.append(tr("MACD histogram negative", "هیستوگرام MACD منفی است"))
 
     # 3) Volatility + structure
     rolling_high = safe_last(high.rolling(20).max(), default=curr_price)
     rolling_low = safe_last(low.rolling(20).min(), default=curr_price)
     if curr_price >= rolling_high:
         long_pts += 10
-        bullish_reasons.append("20-bar breakout to upside")
+        bullish_reasons.append(tr("20-bar breakout to upside", "شکست مقاومت 20 کندل به سمت بالا"))
     elif curr_price <= rolling_low:
         short_pts += 10
-        bearish_reasons.append("20-bar breakout to downside")
+        bearish_reasons.append(tr("20-bar breakout to downside", "شکست حمایت 20 کندل به سمت پایین"))
 
     bb_mid = safe_last(bb.bollinger_mavg(), default=curr_price)
     if curr_price > bb_mid:
         long_pts += 4
-        bullish_reasons.append("Price above Bollinger midline")
+        bullish_reasons.append(tr("Price above Bollinger midline", "قیمت بالاتر از خط میانی بولینگر"))
     else:
         short_pts += 4
-        bearish_reasons.append("Price below Bollinger midline")
+        bearish_reasons.append(tr("Price below Bollinger midline", "قیمت پایین‌تر از خط میانی بولینگر"))
 
     # 4) Flow / participation
     if obv_slope > 0:
         long_pts += 6
-        bullish_reasons.append("OBV rising (buy-side flow)")
+        bullish_reasons.append(tr("OBV rising (buy-side flow)", "افزایش OBV (جریان خرید)"))
     else:
         short_pts += 6
-        bearish_reasons.append("OBV falling (sell-side flow)")
+        bearish_reasons.append(tr("OBV falling (sell-side flow)", "کاهش OBV (جریان فروش)"))
 
     # 5) Intermarket dependencies (gold drivers)
     dxy_ret = pct_change_n(dxy["Close"].squeeze(), 5) if not dxy.empty and "Close" in dxy.columns else 0.0
@@ -434,39 +462,39 @@ if not df.empty:
 
     if dxy_ret < 0:
         long_pts += 8
-        bullish_reasons.append(f"DXY weakening ({dxy_ret:.2f}% / 5 bars)")
+        bullish_reasons.append(tr(f"DXY weakening ({dxy_ret:.2f}% / 5 bars)", f"تضعیف دلار ({dxy_ret:.2f}% / 5 کندل)"))
     elif dxy_ret > 0:
         short_pts += 8
-        bearish_reasons.append(f"DXY strengthening ({dxy_ret:.2f}% / 5 bars)")
+        bearish_reasons.append(tr(f"DXY strengthening ({dxy_ret:.2f}% / 5 bars)", f"تقویت دلار ({dxy_ret:.2f}% / 5 کندل)"))
 
     if us10y_ret < 0:
         long_pts += 7
-        bullish_reasons.append(f"US10Y yield falling ({us10y_ret:.2f}% / 5 bars)")
+        bullish_reasons.append(tr(f"US10Y yield falling ({us10y_ret:.2f}% / 5 bars)", f"کاهش بازده 10Y ({us10y_ret:.2f}% / 5 کندل)"))
     elif us10y_ret > 0:
         short_pts += 7
-        bearish_reasons.append(f"US10Y yield rising ({us10y_ret:.2f}% / 5 bars)")
+        bearish_reasons.append(tr(f"US10Y yield rising ({us10y_ret:.2f}% / 5 bars)", f"افزایش بازده 10Y ({us10y_ret:.2f}% / 5 کندل)"))
 
     if silver_ret > 0:
         long_pts += 5
-        bullish_reasons.append(f"Silver confirms metals strength ({silver_ret:.2f}%)")
+        bullish_reasons.append(tr(f"Silver confirms metals strength ({silver_ret:.2f}%)", f"نقره قدرت فلزات را تأیید می‌کند ({silver_ret:.2f}%)"))
     elif silver_ret < 0:
         short_pts += 5
-        bearish_reasons.append(f"Silver confirms metals weakness ({silver_ret:.2f}%)")
+        bearish_reasons.append(tr(f"Silver confirms metals weakness ({silver_ret:.2f}%)", f"نقره ضعف فلزات را تأیید می‌کند ({silver_ret:.2f}%)"))
 
     if copper_ret > 0:
         long_pts += 2
-        bullish_reasons.append("Copper risk-on support")
+        bullish_reasons.append(tr("Copper risk-on support", "مس از ریسک‌پذیری حمایت می‌کند"))
     elif copper_ret < 0:
         short_pts += 2
-        bearish_reasons.append("Copper risk-off pressure")
+        bearish_reasons.append(tr("Copper risk-off pressure", "مس تحت فشار ریسک‌گریزی است"))
 
     # 6) Higher timeframe confirmation
     if ht_trend == "UP":
         long_pts += 8
-        bullish_reasons.append(f"Higher TF ({higher_tf}) trend is up")
+        bullish_reasons.append(tr(f"Higher TF ({higher_tf}) trend is up", f"روند تایم‌فریم بالاتر ({higher_tf}) صعودی است"))
     elif ht_trend == "DOWN":
         short_pts += 8
-        bearish_reasons.append(f"Higher TF ({higher_tf}) trend is down")
+        bearish_reasons.append(tr(f"Higher TF ({higher_tf}) trend is down", f"روند تایم‌فریم بالاتر ({higher_tf}) نزولی است"))
 
     net_score = long_pts - short_pts
     bias_score = max(-100.0, min(100.0, net_score))
@@ -499,16 +527,16 @@ if not df.empty:
     prev_low_20 = safe_last(low.shift(1).rolling(20).min(), default=curr_price)
 
     pa_sig = "NEUTRAL"
-    pa_reason = "Range/no clear breakout"
+    pa_reason = tr("Range/no clear breakout", "محدوده/سیگنال واضحی وجود ندارد")
     if curr_price > prev_high_20 and curr_price > safe_last(ema50):
         pa_sig = "BUY"
-        pa_reason = "Breakout above previous 20-bar high"
+        pa_reason = tr("Breakout above previous 20-bar high", "شکست مقاومت 20 کندل قبلی")
     elif curr_price < prev_low_20 and curr_price < safe_last(ema50):
         pa_sig = "SELL"
-        pa_reason = "Breakdown below previous 20-bar low"
+        pa_reason = tr("Breakdown below previous 20-bar low", "شکست حمایت 20 کندل قبلی")
 
     fib_sig = "NEUTRAL"
-    fib_reason = "Price away from key retracement zone"
+    fib_reason = tr("Price away from key retracement zone", "قیمت در محدوده بازگشت فیبوناچی نیست")
     swing_high = safe_last(high.rolling(120).max(), default=curr_price)
     swing_low = safe_last(low.rolling(120).min(), default=curr_price)
     fib_range = swing_high - swing_low
@@ -517,40 +545,40 @@ if not df.empty:
         fib_618 = swing_high - fib_range * 0.618
         if safe_last(ema50) > safe_last(ema200) and fib_618 <= curr_price <= fib_50:
             fib_sig = "BUY"
-            fib_reason = "Bull trend pullback in 0.5-0.618 zone"
+            fib_reason = tr("Bull trend pullback in 0.5-0.618 zone", "پولبک روند صعودی در محدوده 0.5-0.618")
         elif safe_last(ema50) < safe_last(ema200) and fib_50 <= curr_price <= fib_618:
             fib_sig = "SELL"
-            fib_reason = "Bear trend pullback in 0.5-0.618 zone"
+            fib_reason = tr("Bear trend pullback in 0.5-0.618 zone", "پولبک روند نزولی در محدوده 0.5-0.618")
 
     rsi_sig = "NEUTRAL"
-    rsi_reason = "RSI between 45 and 55"
+    rsi_reason = tr("RSI between 45 and 55", "RSI بین 45 و 55")
     if curr_rsi > 55:
         rsi_sig = "BUY"
-        rsi_reason = "RSI bullish regime"
+        rsi_reason = tr("RSI bullish regime", "RSI در محدوده صعودی")
     elif curr_rsi < 45:
         rsi_sig = "SELL"
-        rsi_reason = "RSI bearish regime"
+        rsi_reason = tr("RSI bearish regime", "RSI در محدوده نزولی")
 
     macd_sig = "NEUTRAL"
-    macd_reason = "No fresh MACD impulse"
+    macd_reason = tr("No fresh MACD impulse", "سیگنال جدیدی از MACD وجود ندارد")
     if len(macd_hist.dropna()) > 2:
         if macd_hist.iloc[-1] > 0 and macd_hist.iloc[-2] <= 0:
             macd_sig = "BUY"
-            macd_reason = "MACD histogram crossed above zero"
+            macd_reason = tr("MACD histogram crossed above zero", "هیستوگرام MACD بالای صفر عبور کرد")
         elif macd_hist.iloc[-1] < 0 and macd_hist.iloc[-2] >= 0:
             macd_sig = "SELL"
-            macd_reason = "MACD histogram crossed below zero"
+            macd_reason = tr("MACD histogram crossed below zero", "هیستوگرام MACD زیر صفر عبور کرد")
 
     bb_sig = "NEUTRAL"
-    bb_reason = "Price around Bollinger mid area"
+    bb_reason = tr("Price around Bollinger mid area", "قیمت در محدوده میانی بولینگر")
     bb_high = safe_last(bb.bollinger_hband(), default=curr_price)
     bb_low = safe_last(bb.bollinger_lband(), default=curr_price)
     if curr_price < bb_low and curr_rsi < 35:
         bb_sig = "BUY"
-        bb_reason = "Lower band overshoot with low RSI"
+        bb_reason = tr("Lower band overshoot with low RSI", "اشباع فروش در کف باند پایین")
     elif curr_price > bb_high and curr_rsi > 65:
         bb_sig = "SELL"
-        bb_reason = "Upper band overshoot with high RSI"
+        bb_reason = tr("Upper band overshoot with high RSI", "اشباع خرید در سقف باند بالا")
 
     fund_score = 0
     if dxy_ret < 0:
@@ -575,15 +603,16 @@ if not df.empty:
         fund_sig = "BUY"
     elif fund_score <= -2:
         fund_sig = "SELL"
-    fund_reason = f"DXY:{dxy_ret:.2f}% | 10Y:{us10y_ret:.2f}% | Silver:{silver_ret:.2f}% | Copper:{copper_ret:.2f}%"
+    fund_reason = tr(f"DXY:{dxy_ret:.2f}% | 10Y:{us10y_ret:.2f}% | Silver:{silver_ret:.2f}% | Copper:{copper_ret:.2f}%", 
+                       f"دلار:{dxy_ret:.2f}% | 10Y:{us10y_ret:.2f}% | نقره:{silver_ret:.2f}% | مس:{copper_ret:.2f}%")
 
     method_signals = [
-        (T["method_price_action"], pa_sig, pa_reason),
-        (T["method_fib"], fib_sig, fib_reason),
-        (T["method_rsi"], rsi_sig, rsi_reason),
-        (T["method_macd"], macd_sig, macd_reason),
-        (T["method_bollinger"], bb_sig, bb_reason),
-        (T["method_fundamental"], fund_sig, fund_reason),
+        ("price_action", T["method_price_action"], pa_sig, pa_reason),
+        ("fib", T["method_fib"], fib_sig, fib_reason),
+        ("rsi", T["method_rsi"], rsi_sig, rsi_reason),
+        ("macd", T["method_macd"], macd_sig, macd_reason),
+        ("bollinger", T["method_bollinger"], bb_sig, bb_reason),
+        ("fundamental", T["method_fundamental"], fund_sig, fund_reason),
     ]
 
     # --- UI Layout ---
@@ -596,12 +625,24 @@ if not df.empty:
     c4.metric(T["dxy"], f"{curr_dxy:.2f}")
     c5.metric(T["confidence"], f"{confidence:.0f}%")
 
+    signal_display = signal
+    if signal == "STRONG BUY":
+        signal_display = T["sig_strong_buy"]
+    elif signal == "STRONG SELL":
+        signal_display = T["sig_strong_sell"]
+    elif signal == "BUY":
+        signal_display = T["sig_buy"]
+    elif signal == "SELL":
+        signal_display = T["sig_sell"]
+    else:
+        signal_display = T["sig_neutral"]
+
     c6, c7, c8 = st.columns([1.2, 1, 1])
     with c6:
         if signal in ["BUY", "STRONG BUY"]:
-            st.markdown(f"<div class='signal-buy'><h3>{signal}</h3><p>{T['bias_score']}: {bias_score:.1f}</p></div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='signal-buy'><h3>{signal_display}</h3><p>{T['bias_score']}: {bias_score:.1f}</p></div>", unsafe_allow_html=True)
         elif signal in ["SELL", "STRONG SELL"]:
-            st.markdown(f"<div class='signal-sell'><h3>{signal}</h3><p>{T['bias_score']}: {bias_score:.1f}</p></div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='signal-sell'><h3>{signal_display}</h3><p>{T['bias_score']}: {bias_score:.1f}</p></div>", unsafe_allow_html=True)
         else:
             st.markdown(f"<div class='signal-neutral'><h3>{T['signal_wait']}</h3><p>{T['bias_score']}: {bias_score:.1f}</p></div>", unsafe_allow_html=True)
 
@@ -610,30 +651,54 @@ if not df.empty:
         st.write(f"{T['risk_amount']}: ${risk_amt:.2f}")
         st.write(f"{T['lot_size']}: {lot_size:.3f}")
         st.write(f"{T['entry_zone']}: {entry_low:,.2f} - {entry_high:,.2f}")
-        st.write(f"ADX: {curr_adx:.1f} | MACD hist: {curr_macd_hist:.3f}")
+        st.write(f"{T['adx_macd']}: {curr_adx:.1f} / {curr_macd_hist:.3f}")
 
     with c8:
         st.subheader(T["targets"])
         st.write(f"{T['tp']}: {tp:,.2f}")
-        st.write(f"TP2: {tp2:,.2f}")
+        st.write(f"{T['tp2']}: {tp2:,.2f}")
         st.write(f"{T['sl']}: {sl:,.2f}")
         st.write(T["rr_fmt"].format(rr=rr_ratio))
-        st.write(f"Corr(DXY): {correlation:.2f}")
+        st.write(f"{T['corr_dxy']}: {correlation:.2f}")
 
     sig_text_map = {"BUY": T["sig_buy"], "SELL": T["sig_sell"], "NEUTRAL": T["sig_neutral"]}
-    pill_map = {"BUY": "pill-buy", "SELL": "pill-sell", "NEUTRAL": "pill-neutral"}
-    methods_html = ""
-    for method_name, method_sig, method_reason in method_signals:
-        methods_html += f"""
-        <div class='method-card'>
-            <div class='method-head'>
-                <span class='method-name'>{method_name}</span>
-                <span class='pill {pill_map.get(method_sig, "pill-neutral")}'>{sig_text_map.get(method_sig, method_sig)}</span>
-            </div>
-            <div class='method-reason'>{method_reason}</div>
-        </div>
-        """
-    st.markdown(f"<div class='app-card'><h4 style='margin:0 0 10px 0;'>{T['method_title']}</h4><div class='method-grid'>{methods_html}</div></div>", unsafe_allow_html=True)
+    method_rows = []
+    method_conf_map = {
+        "price_action": min(95.0, 45.0 + abs(curr_price - safe_last(ema50)) / max(curr_atr, 1e-9) * 8.0),
+        "fib": min(90.0, 40.0 + (8.0 if fib_sig != "NEUTRAL" else 0.0) + abs(curr_price - (swing_high + swing_low) / 2) / max(curr_atr, 1e-9) * 3.0),
+        "rsi": min(88.0, 35.0 + abs(curr_rsi - 50.0) * 1.2),
+        "macd": min(90.0, 35.0 + abs(curr_macd_hist) * 180.0),
+        "bollinger": min(85.0, 35.0 + abs(curr_price - bb_mid) / max(curr_atr, 1e-9) * 12.0),
+        "fundamental": min(92.0, 35.0 + abs(fund_score) * 14.0),
+    }
+    for method_code, method_name, method_sig, method_reason in method_signals:
+        method_conf = method_conf_map.get(method_code, 50.0)
+        method_rows.append(
+            {
+                "Method": method_name,
+                "_sig_code": method_sig,
+                T["method_signal_col"]: sig_text_map.get(method_sig, method_sig),
+                T["method_conf_col"]: f"{method_conf:.0f}%",
+                T["method_reason_col"]: method_reason,
+                "_conf_sort": method_conf,
+            }
+        )
+    method_df = pd.DataFrame(method_rows)
+    method_df["_sig_rank"] = method_df["_sig_code"].map({"BUY": 2, "SELL": 2, "NEUTRAL": 1}).fillna(0)
+    method_df = method_df.sort_values(by=["_sig_rank", "_conf_sort"], ascending=[False, False])
+
+    def row_style(row):
+        sig = row["_sig_code"]
+        if sig == "BUY":
+            return ["background-color: rgba(33,199,122,0.12); color: #d9fbe9"] * len(row)
+        if sig == "SELL":
+            return ["background-color: rgba(255,90,122,0.12); color: #ffe1e8"] * len(row)
+        return ["background-color: rgba(138,150,173,0.10); color: #d6def0"] * len(row)
+
+    show_df = method_df.drop(columns=["_sig_code", "_sig_rank", "_conf_sort"])
+    styled_df = show_df.style.apply(row_style, axis=1)
+    st.markdown(f"<div class='app-card'><h4 style='margin:0;'>{T['method_title']}</h4></div>", unsafe_allow_html=True)
+    st.dataframe(styled_df, use_container_width=True, hide_index=True)
 
     # --- Chart ---
     if chart_mode == T["chart_tv"]:
@@ -746,9 +811,9 @@ if not df.empty:
         st.write(f"{T['bearish_factors']}:")
         for reason in bearish_reasons[:8]:
             st.write(f"- {reason}")
-        st.write(f"- {T['higher_tf']}: {higher_tf} | {T['trend']}: {ht_trend}")
-        st.write(f"- DXY 5-bar return: {dxy_ret:.2f}% | US10Y 5-bar return: {us10y_ret:.2f}%")
-        st.write(f"- Silver 5-bar return: {silver_ret:.2f}% | Copper 5-bar return: {copper_ret:.2f}%")
+        st.write(f"- {tr('Higher TF', 'تایم‌فریم بالاتر')}: {higher_tf} | {T['trend']}: {ht_trend}")
+        st.write(f"- {tr('DXY 5-bar return', 'بازده دلار 5 کندل')}: {dxy_ret:.2f}% | {tr('US10Y 5-bar return', 'بازده 10Y 5 کندل')}: {us10y_ret:.2f}%")
+        st.write(f"- {tr('Silver 5-bar return', 'بازده نقره 5 کندل')}: {silver_ret:.2f}% | {tr('Copper 5-bar return', 'بازده مس 5 کندل')}: {copper_ret:.2f}%")
 
     st.caption(f"{T['last_update']}: {pd.Timestamp.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC")
 
