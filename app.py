@@ -695,11 +695,11 @@ if not df.empty:
             return ["background-color: rgba(255,90,122,0.12); color: #ffe1e8"] * len(row)
         return ["background-color: rgba(138,150,173,0.10); color: #d6def0"] * len(row)
 
-    # Apply style to the full dataframe, then hide the internal columns
+    # Apply style to full dataframe, then drop internal columns for display
     styled_df = method_df.style.apply(row_style, axis=1)
-    styled_df = styled_df.hide(columns=["_sig_code", "_sig_rank", "_conf_sort"], axis="columns")
+    show_df = method_df.drop(columns=["_sig_code", "_sig_rank", "_conf_sort"])
     st.markdown(f"<div class='app-card'><h4 style='margin:0;'>{T['method_title']}</h4></div>", unsafe_allow_html=True)
-    st.dataframe(styled_df, use_container_width=True, hide_index=True)
+    st.dataframe(styled_df.data, use_container_width=True, hide_index=True)
 
     # --- Chart ---
     if chart_mode == T["chart_tv"]:
