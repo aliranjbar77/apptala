@@ -14,11 +14,48 @@ st.set_page_config(page_title="AI Trading Terminal", layout="wide")
 st.markdown(
     """
     <style>
-        .stApp { background-color: #0e1117; color: white; }
-        .metric-card { background-color: #1e2130; padding: 12px; border-radius: 10px; border: 1px solid #30334e; }
-        .signal-buy { background-color: rgba(0,255,0,0.12); border-left: 5px solid #00ff00; padding: 12px; }
-        .signal-sell { background-color: rgba(255,0,0,0.12); border-left: 5px solid #ff0000; padding: 12px; }
-        .signal-neutral { background-color: rgba(255,255,255,0.06); border-left: 5px solid #aaaaaa; padding: 12px; }
+        :root {
+            --bg: #0a0f1e;
+            --panel: #121a2b;
+            --panel-2: #172238;
+            --line: #263551;
+            --txt: #e6eefc;
+            --muted: #95a6c6;
+            --buy: #21c77a;
+            --sell: #ff5a7a;
+            --neutral: #8a96ad;
+        }
+        .stApp {
+            color: var(--txt);
+            background: radial-gradient(1200px 500px at 10% -20%, #1a2b52 0%, var(--bg) 55%);
+        }
+        .app-card {
+            background: linear-gradient(180deg, var(--panel-2), var(--panel));
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            padding: 12px 14px;
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.2);
+        }
+        .signal-buy { background-color: rgba(33,199,122,0.12); border-left: 5px solid var(--buy); padding: 12px; border-radius: 10px; }
+        .signal-sell { background-color: rgba(255,90,122,0.12); border-left: 5px solid var(--sell); padding: 12px; border-radius: 10px; }
+        .signal-neutral { background-color: rgba(138,150,173,0.15); border-left: 5px solid var(--neutral); padding: 12px; border-radius: 10px; }
+        .method-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+        .method-card {
+            background: linear-gradient(180deg, #101a2f, #0d1628);
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            padding: 10px 12px;
+        }
+        .method-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+        .method-name { font-weight: 600; font-size: 14px; color: var(--txt); }
+        .pill { border-radius: 999px; padding: 2px 10px; font-size: 12px; font-weight: 700; }
+        .pill-buy { background: rgba(33,199,122,0.2); color: #79f0b4; }
+        .pill-sell { background: rgba(255,90,122,0.2); color: #ff9eb0; }
+        .pill-neutral { background: rgba(138,150,173,0.2); color: #c7d2e9; }
+        .method-reason { font-size: 12px; color: var(--muted); line-height: 1.4; }
+        @media (max-width: 900px) {
+            .method-grid { grid-template-columns: 1fr; }
+        }
     </style>
     """,
     unsafe_allow_html=True,
@@ -148,6 +185,21 @@ TEXT = {
         "chart_mode": "Chart Mode",
         "chart_plotly": "Internal Chart",
         "chart_tv": "TradingView Live",
+        "confidence": "Confidence",
+        "bias_score": "Bias score",
+        "entry_zone": "Entry zone",
+        "bullish_factors": "Bullish factors",
+        "bearish_factors": "Bearish factors",
+        "method_title": "Strategy Signals",
+        "method_price_action": "Price Action",
+        "method_fib": "Fibonacci",
+        "method_rsi": "RSI Regime",
+        "method_macd": "MACD",
+        "method_bollinger": "Bollinger",
+        "method_fundamental": "Fundamental",
+        "sig_buy": "BUY",
+        "sig_sell": "SELL",
+        "sig_neutral": "NEUTRAL"
     },
     "fa": {
         "settings": "تنظیمات",
@@ -172,9 +224,9 @@ TEXT = {
         "atr": "ATR",
         "dxy": "DXY",
         "corr": "همبستگی",
-        "signal_buy": "سیگنال: خرید",
-        "signal_sell": "سیگنال: فروش",
-        "signal_wait": "سیگنال: صبر",
+        "signal_buy": "سیگنال خرید",
+        "signal_sell": "سیگنال فروش",
+        "signal_wait": "سیگنال صبر",
         "risk": "ریسک",
         "risk_amount": "میزان ریسک",
         "lot_size": "اندازه لات",
@@ -186,12 +238,27 @@ TEXT = {
         "higher_tf": "تایم‌فریم بالاتر",
         "trend": "روند",
         "last_update": "آخرین آپدیت",
-        "data_fail": "دریافت داده ناموفق بود! اتصال اینترنت را بررسی کنید.",
+        "data_fail": "دریافت داده ناموفق بود. اتصال اینترنت را بررسی کنید.",
         "lang": "Language / زبان",
         "chart_mode": "حالت چارت",
         "chart_plotly": "چارت داخلی",
         "chart_tv": "تریدینگ‌ویو زنده",
-    },
+        "confidence": "اعتماد تحلیل",
+        "bias_score": "امتیاز جهت",
+        "entry_zone": "محدوده ورود",
+        "bullish_factors": "فاکتورهای صعودی",
+        "bearish_factors": "فاکتورهای نزولی",
+        "method_title": "سیگنال روش‌های تحلیلی",
+        "method_price_action": "پرایس اکشن",
+        "method_fib": "فیبوناچی",
+        "method_rsi": "رژیم RSI",
+        "method_macd": "مکدی",
+        "method_bollinger": "بولینگر",
+        "method_fundamental": "فاندامنتال",
+        "sig_buy": "خرید",
+        "sig_sell": "فروش",
+        "sig_neutral": "خنثی"
+    }
 }
 
 lang_choice = st.sidebar.selectbox(TEXT["en"]["lang"], ["فارسی", "English"], index=0)
@@ -430,6 +497,98 @@ if not df.empty:
     risk_per_unit = abs(curr_price - sl) * contract_size
     lot_size = (risk_amt / risk_per_unit) if risk_per_unit != 0 else 0
 
+    # --- Per-method signal box (technical + fundamental) ---
+    prev_high_20 = safe_last(high.shift(1).rolling(20).max(), default=curr_price)
+    prev_low_20 = safe_last(low.shift(1).rolling(20).min(), default=curr_price)
+
+    pa_sig = "NEUTRAL"
+    pa_reason = "Range/no clear breakout"
+    if curr_price > prev_high_20 and curr_price > safe_last(ema50):
+        pa_sig = "BUY"
+        pa_reason = "Breakout above previous 20-bar high"
+    elif curr_price < prev_low_20 and curr_price < safe_last(ema50):
+        pa_sig = "SELL"
+        pa_reason = "Breakdown below previous 20-bar low"
+
+    fib_sig = "NEUTRAL"
+    fib_reason = "Price away from key retracement zone"
+    swing_high = safe_last(high.rolling(120).max(), default=curr_price)
+    swing_low = safe_last(low.rolling(120).min(), default=curr_price)
+    fib_range = swing_high - swing_low
+    if fib_range > 0:
+        fib_50 = swing_high - fib_range * 0.5
+        fib_618 = swing_high - fib_range * 0.618
+        if safe_last(ema50) > safe_last(ema200) and fib_618 <= curr_price <= fib_50:
+            fib_sig = "BUY"
+            fib_reason = "Bull trend pullback in 0.5-0.618 zone"
+        elif safe_last(ema50) < safe_last(ema200) and fib_50 <= curr_price <= fib_618:
+            fib_sig = "SELL"
+            fib_reason = "Bear trend pullback in 0.5-0.618 zone"
+
+    rsi_sig = "NEUTRAL"
+    rsi_reason = "RSI between 45 and 55"
+    if curr_rsi > 55:
+        rsi_sig = "BUY"
+        rsi_reason = "RSI bullish regime"
+    elif curr_rsi < 45:
+        rsi_sig = "SELL"
+        rsi_reason = "RSI bearish regime"
+
+    macd_sig = "NEUTRAL"
+    macd_reason = "No fresh MACD impulse"
+    if len(macd_hist.dropna()) > 2:
+        if macd_hist.iloc[-1] > 0 and macd_hist.iloc[-2] <= 0:
+            macd_sig = "BUY"
+            macd_reason = "MACD histogram crossed above zero"
+        elif macd_hist.iloc[-1] < 0 and macd_hist.iloc[-2] >= 0:
+            macd_sig = "SELL"
+            macd_reason = "MACD histogram crossed below zero"
+
+    bb_sig = "NEUTRAL"
+    bb_reason = "Price around Bollinger mid area"
+    bb_high = safe_last(bb.bollinger_hband(), default=curr_price)
+    bb_low = safe_last(bb.bollinger_lband(), default=curr_price)
+    if curr_price < bb_low and curr_rsi < 35:
+        bb_sig = "BUY"
+        bb_reason = "Lower band overshoot with low RSI"
+    elif curr_price > bb_high and curr_rsi > 65:
+        bb_sig = "SELL"
+        bb_reason = "Upper band overshoot with high RSI"
+
+    fund_score = 0
+    if dxy_ret < 0:
+        fund_score += 1
+    elif dxy_ret > 0:
+        fund_score -= 1
+    if us10y_ret < 0:
+        fund_score += 1
+    elif us10y_ret > 0:
+        fund_score -= 1
+    if silver_ret > 0:
+        fund_score += 1
+    elif silver_ret < 0:
+        fund_score -= 1
+    if copper_ret > 0:
+        fund_score += 1
+    elif copper_ret < 0:
+        fund_score -= 1
+
+    fund_sig = "NEUTRAL"
+    if fund_score >= 2:
+        fund_sig = "BUY"
+    elif fund_score <= -2:
+        fund_sig = "SELL"
+    fund_reason = f"DXY:{dxy_ret:.2f}% | 10Y:{us10y_ret:.2f}% | Silver:{silver_ret:.2f}% | Copper:{copper_ret:.2f}%"
+
+    method_signals = [
+        (T["method_price_action"], pa_sig, pa_reason),
+        (T["method_fib"], fib_sig, fib_reason),
+        (T["method_rsi"], rsi_sig, rsi_reason),
+        (T["method_macd"], macd_sig, macd_reason),
+        (T["method_bollinger"], bb_sig, bb_reason),
+        (T["method_fundamental"], fund_sig, fund_reason),
+    ]
+
     # --- UI Layout ---
     st.title(T["title"])
 
@@ -438,22 +597,22 @@ if not df.empty:
     c2.metric(T["rsi"], f"{curr_rsi:.2f}")
     c3.metric(T["atr"], f"{curr_atr:.2f}")
     c4.metric(T["dxy"], f"{curr_dxy:.2f}")
-    c5.metric("Confidence", f"{confidence:.0f}%")
+    c5.metric(T["confidence"], f"{confidence:.0f}%")
 
     c6, c7, c8 = st.columns([1.2, 1, 1])
     with c6:
         if signal in ["BUY", "STRONG BUY"]:
-            st.markdown(f"<div class='signal-buy'><h3>{signal}</h3><p>Bias score: {bias_score:.1f}</p></div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='signal-buy'><h3>{signal}</h3><p>{T['bias_score']}: {bias_score:.1f}</p></div>", unsafe_allow_html=True)
         elif signal in ["SELL", "STRONG SELL"]:
-            st.markdown(f"<div class='signal-sell'><h3>{signal}</h3><p>Bias score: {bias_score:.1f}</p></div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='signal-sell'><h3>{signal}</h3><p>{T['bias_score']}: {bias_score:.1f}</p></div>", unsafe_allow_html=True)
         else:
-            st.markdown(f"<div class='signal-neutral'><h3>{T['signal_wait']}</h3><p>Bias score: {bias_score:.1f}</p></div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='signal-neutral'><h3>{T['signal_wait']}</h3><p>{T['bias_score']}: {bias_score:.1f}</p></div>", unsafe_allow_html=True)
 
     with c7:
         st.subheader(T["risk"])
         st.write(f"{T['risk_amount']}: ${risk_amt:.2f}")
         st.write(f"{T['lot_size']}: {lot_size:.3f}")
-        st.write(f"Entry zone: {entry_low:,.2f} - {entry_high:,.2f}")
+        st.write(f"{T['entry_zone']}: {entry_low:,.2f} - {entry_high:,.2f}")
         st.write(f"ADX: {curr_adx:.1f} | MACD hist: {curr_macd_hist:.3f}")
 
     with c8:
@@ -463,6 +622,21 @@ if not df.empty:
         st.write(f"{T['sl']}: {sl:,.2f}")
         st.write(T["rr_fmt"].format(rr=rr_ratio))
         st.write(f"Corr(DXY): {correlation:.2f}")
+
+    sig_text_map = {"BUY": T["sig_buy"], "SELL": T["sig_sell"], "NEUTRAL": T["sig_neutral"]}
+    pill_map = {"BUY": "pill-buy", "SELL": "pill-sell", "NEUTRAL": "pill-neutral"}
+    methods_html = ""
+    for method_name, method_sig, method_reason in method_signals:
+        methods_html += f"""
+        <div class='method-card'>
+            <div class='method-head'>
+                <span class='method-name'>{method_name}</span>
+                <span class='pill {pill_map.get(method_sig, "pill-neutral")}'>{sig_text_map.get(method_sig, method_sig)}</span>
+            </div>
+            <div class='method-reason'>{method_reason}</div>
+        </div>
+        """
+    st.markdown(f"<div class='app-card'><h4 style='margin:0 0 10px 0;'>{T['method_title']}</h4><div class='method-grid'>{methods_html}</div></div>", unsafe_allow_html=True)
 
     # --- Chart ---
     if chart_mode == T["chart_tv"]:
@@ -569,10 +743,10 @@ if not df.empty:
         st.plotly_chart(fig, use_container_width=True)
 
     with st.expander(T["logic"]):
-        st.write("Bullish factors:")
+        st.write(f"{T['bullish_factors']}:")
         for reason in bullish_reasons[:8]:
             st.write(f"- {reason}")
-        st.write("Bearish factors:")
+        st.write(f"{T['bearish_factors']}:")
         for reason in bearish_reasons[:8]:
             st.write(f"- {reason}")
         st.write(f"- {T['higher_tf']}: {higher_tf} | {T['trend']}: {ht_trend}")
@@ -600,3 +774,4 @@ if not df.empty:
 
 else:
     st.error(T["data_fail"])
+
