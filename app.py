@@ -698,11 +698,11 @@ if not df.empty:
     # Create display dataframe and apply style
     show_df = method_df.drop(columns=["_sig_code", "_sig_rank", "_conf_sort"])
     styled_df = show_df.style.apply(lambda row: 
-        ["background-color: rgba(33,199,122,0.12); color: #d9fbe9"] * len(row) 
+        ["background-color: #0d4f2c; color: #b3e5d1; border: 1px solid #21c77a; font-weight: 600"] * len(row) 
         if method_df.loc[row.name, "_sig_code"] == "BUY" else
-        ["background-color: rgba(255,90,122,0.12); color: #ffe1e8"] * len(row) 
+        ["background-color: #5a1a2e; color: #ffb3c1; border: 1px solid #ff5a7a; font-weight: 600"] * len(row) 
         if method_df.loc[row.name, "_sig_code"] == "SELL" else
-        ["background-color: rgba(138,150,173,0.10); color: #d6def0"] * len(row), 
+        ["background-color: #2a2a3e; color: #d6def0; border: 1px solid #8a96ad; font-weight: 500"] * len(row), 
         axis=1)
     
     st.markdown(f"<div class='app-card'><h4 style='margin:0;'>{T['method_title']}</h4></div>", unsafe_allow_html=True)
