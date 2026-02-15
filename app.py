@@ -695,11 +695,18 @@ if not df.empty:
             return ["background-color: rgba(255,90,122,0.12); color: #ffe1e8"] * len(row)
         return ["background-color: rgba(138,150,173,0.10); color: #d6def0"] * len(row)
 
-    # Apply style to full dataframe, then drop internal columns for display
-    styled_df = method_df.style.apply(row_style, axis=1)
+    # Create display dataframe and apply style
     show_df = method_df.drop(columns=["_sig_code", "_sig_rank", "_conf_sort"])
+    styled_df = show_df.style.apply(lambda row: 
+        ["background-color: rgba(33,199,122,0.12); color: #d9fbe9"] * len(row) 
+        if method_df.loc[row.name, "_sig_code"] == "BUY" else
+        ["background-color: rgba(255,90,122,0.12); color: #ffe1e8"] * len(row) 
+        if method_df.loc[row.name, "_sig_code"] == "SELL" else
+        ["background-color: rgba(138,150,173,0.10); color: #d6def0"] * len(row), 
+        axis=1)
+    
     st.markdown(f"<div class='app-card'><h4 style='margin:0;'>{T['method_title']}</h4></div>", unsafe_allow_html=True)
-    st.dataframe(styled_df.data, use_container_width=True, hide_index=True)
+    st.dataframe(styled_df, use_container_width=True, hide_index=True)
 
     # --- Chart ---
     if chart_mode == T["chart_tv"]:
