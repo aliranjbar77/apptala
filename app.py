@@ -62,7 +62,6 @@ st.markdown(
 )
 
 # --- Helpers ---
-@st.cache_data(ttl=30)
 def get_data(symbol: str, period: str, interval: str):
     data = yf.download(symbol, period=period, interval=interval)
     dxy = yf.download("DX-Y.NYB", period=period, interval=interval)
@@ -75,7 +74,6 @@ def get_data(symbol: str, period: str, interval: str):
     return data, dxy
 
 
-@st.cache_data(ttl=60)
 def get_market_context(period: str, interval: str):
     # Key intermarket drivers for gold
     symbols = {
@@ -92,7 +90,6 @@ def get_market_context(period: str, interval: str):
         out[key] = ctx_df
     return out
 
-@st.cache_data(ttl=300)
 def get_higher_timeframe(symbol: str, base_interval: str):
     mapping = {"1m": "5m", "5m": "15m", "15m": "1h", "1h": "4h", "4h": "1d", "1d": "1wk"}
     higher = mapping.get(base_interval, "1d")
