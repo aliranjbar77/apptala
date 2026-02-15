@@ -679,7 +679,7 @@ if not df.empty:
                 "_sig_code": method_sig,
                 T["method_signal_col"]: sig_text_map.get(method_sig, method_sig),
                 T["method_conf_col"]: f"{method_conf:.0f}%",
-                T["method_reason_col"]: method_reason,
+                T["method_reason_col"]: str(method_reason),
                 "_conf_sort": method_conf,
             }
         )
