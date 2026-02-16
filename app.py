@@ -133,6 +133,19 @@ st.markdown(
             margin-top: 0.2rem !important;
             margin-bottom: 0.4rem !important;
         }
+        [data-testid="stSidebar"] label,
+        [data-testid="stSidebar"] .stMarkdown,
+        [data-testid="stSidebar"] span,
+        [data-testid="stSidebar"] p {
+            color: #dce7fb !important;
+            opacity: 1 !important;
+        }
+        [data-testid="stSidebar"] input,
+        [data-testid="stSidebar"] select,
+        [data-testid="stSidebar"] textarea {
+            color: #f4f8ff !important;
+            background-color: rgba(255, 255, 255, 0.05) !important;
+        }
         [data-testid="stSidebar"] hr {
             border-color: rgba(255, 255, 255, 0.14) !important;
         }
@@ -154,6 +167,29 @@ st.markdown(
             font-size: 12px;
             line-height: 1.35;
         }
+        .top-status {
+            position: sticky;
+            top: 0.35rem;
+            z-index: 999;
+            background: rgba(12, 20, 36, 0.92);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 12px;
+            padding: 8px 12px;
+            margin-bottom: 10px;
+            backdrop-filter: blur(8px);
+        }
+        .top-status strong { color: #ffffff; font-weight: 700; }
+        .top-status .k { color: #a9bcde; font-size: 12px; margin-right: 6px; }
+        .top-status .v { color: #f2f6ff; font-size: 13px; margin-right: 12px; }
+        .badge-buy, .badge-sell, .badge-neutral {
+            border-radius: 999px;
+            padding: 3px 10px;
+            font-size: 12px;
+            font-weight: 700;
+        }
+        .badge-buy { background: rgba(33,199,122,0.18); color: #8df1be; }
+        .badge-sell { background: rgba(255,90,122,0.2); color: #ffc1cf; }
+        .badge-neutral { background: rgba(138,150,173,0.22); color: #dde5f6; }
         .stButton > button {
             background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%);
             border: none;
@@ -210,6 +246,38 @@ st.markdown(
             text-align: center;
             box-shadow: 0 4px 18px rgba(0, 0, 0, 0.22);
         }
+        .signal-buy h3, .signal-buy p {
+            color: #dff9ec !important;
+            opacity: 1 !important;
+        }
+        .signal-sell h3, .signal-sell p {
+            color: #ffe3ea !important;
+            opacity: 1 !important;
+        }
+        .signal-neutral h3, .signal-neutral p {
+            color: #ecf2ff !important;
+            opacity: 1 !important;
+        }
+        [data-testid="stSidebar"] [data-baseweb="select"] > div,
+        [data-testid="stSidebar"] [data-baseweb="input"] > div {
+            color: #f4f8ff !important;
+            background-color: rgba(255, 255, 255, 0.05) !important;
+        }
+        [data-testid="stSidebar"] [data-baseweb="select"] svg {
+            fill: #dce7fb !important;
+        }
+        [data-testid="stSidebar"] [role="slider"] {
+            background: #ff6a6a !important;
+        }
+        .hero-signal {
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            padding: 10px 12px;
+            margin-bottom: 8px;
+            background: linear-gradient(135deg, rgba(19, 30, 52, 0.9), rgba(14, 23, 40, 0.92));
+        }
+        .hero-signal .h-label { color: #a9bcde; font-size: 12px; margin-right: 8px; }
+        .hero-signal .h-value { color: #f3f7ff; font-size: 15px; font-weight: 700; margin-right: 14px; }
         .method-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
         .method-card {
             background: linear-gradient(180deg, #101a2f, #0d1628);
@@ -1130,6 +1198,27 @@ if is_light_theme:
                 background: #eef3fb !important;
                 border-right: 1px solid #d8e1ef !important;
             }
+            [data-testid="stSidebar"] label,
+            [data-testid="stSidebar"] .stMarkdown,
+            [data-testid="stSidebar"] span,
+            [data-testid="stSidebar"] p {
+                color: #344a71 !important;
+                opacity: 1 !important;
+            }
+            [data-testid="stSidebar"] input,
+            [data-testid="stSidebar"] select,
+            [data-testid="stSidebar"] textarea {
+                color: #112445 !important;
+                background: rgba(255, 255, 255, 0.95) !important;
+            }
+            [data-testid="stSidebar"] [data-baseweb="select"] > div,
+            [data-testid="stSidebar"] [data-baseweb="input"] > div {
+                color: #102344 !important;
+                background: rgba(255, 255, 255, 0.97) !important;
+            }
+            [data-testid="stSidebar"] [data-baseweb="select"] svg {
+                fill: #35527e !important;
+            }
             .app-card {
                 background: rgba(255, 255, 255, 0.95) !important;
                 border: 1px solid #d6e0f0 !important;
@@ -1144,6 +1233,19 @@ if is_light_theme:
             [data-testid="stMetricDelta"] { color: #526788 !important; }
             h1, h2, h3, h4, h5 { color: #0f1e39 !important; }
             .app-card div, .app-card span, .app-card p { color: #2f4569 !important; }
+            .top-status {
+                background: rgba(255, 255, 255, 0.96) !important;
+                border: 1px solid #d6e0f0 !important;
+            }
+            .top-status .k { color: #4f6487 !important; }
+            .top-status .v { color: #102344 !important; }
+            .top-status strong { color: #0f1e39 !important; }
+            .hero-signal {
+                background: linear-gradient(135deg, #ffffff, #f4f8ff) !important;
+                border: 1px solid #d6e0f0 !important;
+            }
+            .hero-signal .h-label { color: #4f6487 !important; }
+            .hero-signal .h-value { color: #0f1e39 !important; }
         </style>
         """,
         unsafe_allow_html=True,
@@ -1171,6 +1273,7 @@ asset_name = st.sidebar.selectbox(
 )
 timeframe = st.sidebar.selectbox(T["timeframe"], ["1m", "5m", "15m", "1h", "4h", "1d"], index=3)
 compact_sidebar = st.sidebar.checkbox(tr("Compact Sidebar", "منوی جمع‌وجور"), value=True)
+view_mode = st.sidebar.selectbox(tr("View Mode", "حالت نمایش"), [tr("Simple", "ساده"), tr("Pro", "حرفه‌ای")], index=0)
 
 st.sidebar.markdown("---")
 st.sidebar.subheader(T["risk_mgmt"])
@@ -1600,15 +1703,103 @@ if not df.empty:
     # --- UI Layout ---
     st.title(T["title"])
 
+    signal_display = signal
+    if signal == "STRONG BUY":
+        signal_display = T["sig_strong_buy"]
+    elif signal == "STRONG SELL":
+        signal_display = T["sig_strong_sell"]
+    elif signal == "BUY":
+        signal_display = T["sig_buy"]
+    elif signal == "SELL":
+        signal_display = T["sig_sell"]
+    else:
+        signal_display = T["sig_neutral"]
+
+    badge_class = "badge-neutral"
+    if signal in ["BUY", "STRONG BUY"]:
+        badge_class = "badge-buy"
+    elif signal in ["SELL", "STRONG SELL"]:
+        badge_class = "badge-sell"
+
+    st.markdown(
+        f"""
+        <div class="top-status">
+            <span class="k">{tr("Price", "قیمت")}:</span><span class="v"><strong>${curr_price:,.2f}</strong></span>
+            <span class="k">{tr("Signal", "سیگنال")}:</span><span class="v"><span class="{badge_class}">{signal_display}</span></span>
+            <span class="k">{T["confidence"]}:</span><span class="v"><strong>{confidence:.0f}%</strong></span>
+            <span class="k">{T["last_update"]}:</span><span class="v">{pd.Timestamp.utcnow().strftime('%H:%M:%S')} UTC</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    st.markdown(
+        f"""
+        <div class="hero-signal">
+            <span class="h-label">{tr("Main Signal", "سیگنال اصلی")}:</span>
+            <span class="h-value">{signal_display}</span>
+            <span class="h-label">{T["confidence"]}:</span>
+            <span class="h-value">{confidence:.0f}%</span>
+            <span class="h-label">{T["bias_score"]}:</span>
+            <span class="h-value">{bias_score:.1f}</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
     c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric(T["price"], f"${curr_price:,.2f}")
     c2.metric(T["rsi"], f"{curr_rsi:.2f}")
     c3.metric(T["atr"], f"{curr_atr:.2f}")
     c4.metric(T["dxy"], f"{curr_dxy:.2f}")
-    c5.metric(T["confidence"], f"{confidence:.0f}%")
+    conf_tag = tr("Weak", "ضعیف")
+    if confidence >= 75:
+        conf_tag = tr("Strong", "قوی")
+    elif confidence >= 50:
+        conf_tag = tr("Medium", "متوسط")
+    c5.metric(T["confidence"], f"{confidence:.0f}%", conf_tag)
+
+    c6, c7, c8 = st.columns([1.2, 1, 1])
+    with c6:
+        signal_class = "pulse-animation" if enable_animations else ""
+        if signal in ["BUY", "STRONG BUY"]:
+            if signal == "STRONG BUY" and enable_audio_alerts:
+                play_alert_sound("strong_buy")
+            st.markdown(f"<div class='signal-buy {signal_class}'><h3>{signal_display}</h3><p>{T['bias_score']}: {bias_score:.1f}</p></div>", unsafe_allow_html=True)
+        elif signal in ["SELL", "STRONG SELL"]:
+            if signal == "STRONG SELL" and enable_audio_alerts:
+                play_alert_sound("strong_sell")
+            st.markdown(f"<div class='signal-sell {signal_class}'><h3>{signal_display}</h3><p>{T['bias_score']}: {bias_score:.1f}</p></div>", unsafe_allow_html=True)
+        else:
+            st.markdown(f"<div class='signal-neutral'><h3>{T['signal_wait']}</h3><p>{T['bias_score']}: {bias_score:.1f}</p></div>", unsafe_allow_html=True)
+
+    with c7:
+        st.subheader(T["risk"])
+        st.write(f"{T['risk_amount']}: ${risk_amt:.2f}")
+        if smart_sizing_data:
+            st.write(f"{T['base_position']}: {smart_sizing_data['base_lot_size']:.3f}")
+            st.write(f"{T['adjusted_position']}: {smart_sizing_data['adjusted_lot_size']:.3f}")
+            st.write(f"{T['sizing_factor']}: {smart_sizing_data['sizing_factor']:.2f}x")
+            with st.expander(T["smart_position_sizing"]):
+                st.write(f"{T['volatility_adjustment']}: {smart_sizing_data['volatility_factor']:.2f}x")
+                if sentiment_data:
+                    st.write(f"{T['sentiment_adjustment']}: {smart_sizing_data['sentiment_factor']:.2f}x")
+                st.write(f"{T['risk_multiplier']}: {smart_sizing_data['risk_multiplier']:.2f}x")
+        else:
+            st.write(f"{T['lot_size']}: {lot_size:.3f}")
+        st.write(f"{T['entry_zone']}: {entry_low:,.2f} - {entry_high:,.2f}")
+        st.write(f"{T['adx_macd']}: {curr_adx:.1f} / {curr_macd_hist:.3f}")
+
+    with c8:
+        st.subheader(T["targets"])
+        st.write(f"{T['tp']}: {tp:,.2f}")
+        st.write(f"{T['tp2']}: {tp2:,.2f}")
+        st.write(f"{T['sl']}: {sl:,.2f}")
+        st.write(T["rr_fmt"].format(rr=rr_ratio))
+        st.write(f"{T['corr_dxy']}: {correlation:.2f}")
 
     # --- Sentiment Analysis Display ---
-    if sentiment_data:
+    if sentiment_data and view_mode == tr("Pro", "حرفه‌ای"):
         sentiment_color = "#21c77a" if sentiment_data['overall'] == 'bullish' else "#ff5a7a" if sentiment_data['overall'] == 'bearish' else "#8a96ad"
         sentiment_display = T[sentiment_data['overall']] if sentiment_data['overall'] in T else sentiment_data['overall']
         
@@ -1634,12 +1825,14 @@ if not df.empty:
         """, unsafe_allow_html=True)
 
     # --- Macro Dashboard Display ---
-    st.markdown(f"<div class='app-card'><h4 style='margin:0;'>{T['macro_dashboard']}</h4></div>", unsafe_allow_html=True)
+    if view_mode == tr("Pro", "حرفه‌ای"):
+        st.markdown(f"<div class='app-card'><h4 style='margin:0;'>{T['macro_dashboard']}</h4></div>", unsafe_allow_html=True)
     
     # Real Yields Section
     real_yield_color = "#21c77a" if real_yields_data['real_yield'] > 0 else "#ff5a7a" if real_yields_data['real_yield'] < 0 else "#8a96ad"
     
-    st.markdown(f"""
+    if view_mode == tr("Pro", "حرفه‌ای"):
+        st.markdown(f"""
     <div class='app-card' style='border-left: 5px solid {real_yield_color}; margin-bottom: 15px;'>
         <h5 style='margin:0; color: var(--txt);'>{T['real_yields']}</h5>
         <div style='display: flex; justify-content: space-between; align-items: center; margin-top: 10px;'>
@@ -1655,23 +1848,25 @@ if not df.empty:
             </div>
         </div>
     </div>
-    """, unsafe_allow_html=True)
+        """, unsafe_allow_html=True)
     
     # Fed Watch Section
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        st.metric(T['current_rate'], f"{fed_watch_data['current_rate']:.2f}%")
-    with col2:
-        st.metric(T['prob_hike'], f"{fed_watch_data['prob_hike']:.1%}")
-    with col3:
-        st.metric(T['prob_cut'], f"{fed_watch_data['prob_cut']:.1%}")
-    with col4:
-        st.metric(T['prob_hold'], f"{fed_watch_data['prob_hold']:.1%}")
+    if view_mode == tr("Pro", "حرفه‌ای"):
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric(T['current_rate'], f"{fed_watch_data['current_rate']:.2f}%")
+        with col2:
+            st.metric(T['prob_hike'], f"{fed_watch_data['prob_hike']:.1%}")
+        with col3:
+            st.metric(T['prob_cut'], f"{fed_watch_data['prob_cut']:.1%}")
+        with col4:
+            st.metric(T['prob_hold'], f"{fed_watch_data['prob_hold']:.1%}")
     
     # Economic Calendar Section
-    st.markdown(f"<div class='app-card'><h5 style='margin:0;'>{T['economic_calendar']}</h5></div>", unsafe_allow_html=True)
+    if view_mode == tr("Pro", "حرفه‌ای"):
+        st.markdown(f"<div class='app-card'><h5 style='margin:0;'>{T['economic_calendar']}</h5></div>", unsafe_allow_html=True)
     
-    if economic_events:
+    if economic_events and view_mode == tr("Pro", "حرفه‌ای"):
         for event in economic_events:
             impact_color = "#ff5a7a" if event['impact'] == 'High' else "#ffa500" if event['impact'] == 'Medium' else "#8a96ad"
             
@@ -1691,7 +1886,7 @@ if not df.empty:
             """, unsafe_allow_html=True)
 
     # --- Backtesting Results Display ---
-    if backtest_data:
+    if backtest_data and view_mode == tr("Pro", "حرفه‌ای"):
         st.markdown(f"<div class='app-card'><h4 style='margin:0;'>{T['backtest_results']}</h4></div>", unsafe_allow_html=True)
         
         # Display key metrics
@@ -1728,7 +1923,7 @@ if not df.empty:
             st.markdown(display_df.to_html(escape=False, index=False), unsafe_allow_html=True)
 
     # --- Advanced Correlation Analysis Display ---
-    if correlation_data:
+    if correlation_data and view_mode == tr("Pro", "حرفه‌ای"):
         st.markdown(f"<div class='app-card'><h4 style='margin:0;'>{T['correlation_matrix']}</h4></div>", unsafe_allow_html=True)
         
         # Create and display heatmap
@@ -1752,63 +1947,6 @@ if not df.empty:
         
         correlation_df = pd.DataFrame(correlation_rows)
         st.markdown(correlation_df.to_html(escape=False, index=False), unsafe_allow_html=True)
-
-    signal_display = signal
-    if signal == "STRONG BUY":
-        signal_display = T["sig_strong_buy"]
-    elif signal == "STRONG SELL":
-        signal_display = T["sig_strong_sell"]
-    elif signal == "BUY":
-        signal_display = T["sig_buy"]
-    elif signal == "SELL":
-        signal_display = T["sig_sell"]
-    else:
-        signal_display = T["sig_neutral"]
-
-    c6, c7, c8 = st.columns([1.2, 1, 1])
-    with c6:
-        signal_class = "pulse-animation" if enable_animations else ""
-        
-        if signal in ["BUY", "STRONG BUY"]:
-            if signal == "STRONG BUY" and enable_audio_alerts:
-                play_alert_sound("strong_buy")
-            st.markdown(f"<div class='signal-buy {signal_class}'><h3>{signal_display}</h3><p>{T['bias_score']}: {bias_score:.1f}</p></div>", unsafe_allow_html=True)
-        elif signal in ["SELL", "STRONG SELL"]:
-            if signal == "STRONG SELL" and enable_audio_alerts:
-                play_alert_sound("strong_sell")
-            st.markdown(f"<div class='signal-sell {signal_class}'><h3>{signal_display}</h3><p>{T['bias_score']}: {bias_score:.1f}</p></div>", unsafe_allow_html=True)
-        else:
-            st.markdown(f"<div class='signal-neutral'><h3>{T['signal_wait']}</h3><p>{T['bias_score']}: {bias_score:.1f}</p></div>", unsafe_allow_html=True)
-
-    with c7:
-        st.subheader(T["risk"])
-        st.write(f"{T['risk_amount']}: ${risk_amt:.2f}")
-        
-        # Show smart sizing information if enabled
-        if smart_sizing_data:
-            st.write(f"{T['base_position']}: {smart_sizing_data['base_lot_size']:.3f}")
-            st.write(f"{T['adjusted_position']}: {smart_sizing_data['adjusted_lot_size']:.3f}")
-            st.write(f"{T['sizing_factor']}: {smart_sizing_data['sizing_factor']:.2f}x")
-            
-            # Show adjustment factors
-            with st.expander(T["smart_position_sizing"]):
-                st.write(f"{T['volatility_adjustment']}: {smart_sizing_data['volatility_factor']:.2f}x")
-                if sentiment_data:
-                    st.write(f"{T['sentiment_adjustment']}: {smart_sizing_data['sentiment_factor']:.2f}x")
-                st.write(f"{T['risk_multiplier']}: {smart_sizing_data['risk_multiplier']:.2f}x")
-        else:
-            st.write(f"{T['lot_size']}: {lot_size:.3f}")
-        
-        st.write(f"{T['entry_zone']}: {entry_low:,.2f} - {entry_high:,.2f}")
-        st.write(f"{T['adx_macd']}: {curr_adx:.1f} / {curr_macd_hist:.3f}")
-
-    with c8:
-        st.subheader(T["targets"])
-        st.write(f"{T['tp']}: {tp:,.2f}")
-        st.write(f"{T['tp2']}: {tp2:,.2f}")
-        st.write(f"{T['sl']}: {sl:,.2f}")
-        st.write(T["rr_fmt"].format(rr=rr_ratio))
-        st.write(f"{T['corr_dxy']}: {correlation:.2f}")
 
     sig_text_map = {"BUY": T["sig_buy"], "SELL": T["sig_sell"], "NEUTRAL": T["sig_neutral"]}
     method_rows = []
