@@ -146,6 +146,14 @@ st.markdown(
             color: #f4f8ff !important;
             background-color: rgba(255, 255, 255, 0.05) !important;
         }
+        [data-testid="stSidebar"] .stNumberInput input,
+        [data-testid="stSidebar"] .stTextInput input,
+        [data-testid="stSidebar"] div[data-baseweb="input"] input {
+            color: #f4f8ff !important;
+            -webkit-text-fill-color: #f4f8ff !important;
+            caret-color: #f4f8ff !important;
+            font-weight: 600 !important;
+        }
         [data-testid="stSidebar"] hr {
             border-color: rgba(255, 255, 255, 0.14) !important;
         }
@@ -1232,6 +1240,14 @@ if is_light_theme:
             [data-testid="stSidebar"] textarea {
                 color: #112445 !important;
                 background: rgba(255, 255, 255, 0.95) !important;
+            }
+            [data-testid="stSidebar"] .stNumberInput input,
+            [data-testid="stSidebar"] .stTextInput input,
+            [data-testid="stSidebar"] div[data-baseweb="input"] input {
+                color: #112445 !important;
+                -webkit-text-fill-color: #112445 !important;
+                caret-color: #112445 !important;
+                font-weight: 600 !important;
             }
             [data-testid="stSidebar"] [data-baseweb="select"] > div,
             [data-testid="stSidebar"] [data-baseweb="input"] > div {
