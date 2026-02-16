@@ -12,6 +12,7 @@ import requests
 import json
 from datetime import datetime, timedelta
 import re
+import time
 
 # --- Audio Alert Function ---
 def play_alert_sound(alert_type: str = "signal"):
@@ -339,9 +340,29 @@ st.markdown(
 )
 
 # --- Helpers ---
+def safe_yf_download(ticker: str, period: str, interval: str, retries: int = 3) -> pd.DataFrame:
+    """Download market data with retry to avoid transient yfinance concat errors."""
+    for attempt in range(retries):
+        try:
+            df = yf.download(ticker, period=period, interval=interval, progress=False, threads=False)
+            if isinstance(df.columns, pd.MultiIndex):
+                df.columns = df.columns.get_level_values(0)
+            if not df.empty:
+                return df
+        except ValueError as e:
+            if "No objects to concatenate" not in str(e):
+                # Unknown ValueError; continue retrying but do not crash app.
+                pass
+        except Exception:
+            # Network/API side failures should not break UI; retry first.
+            pass
+        if attempt < retries - 1:
+            time.sleep(1 + attempt)
+    return pd.DataFrame()
+
 def get_data(symbol: str, period: str, interval: str):
-    data = yf.download(symbol, period=period, interval=interval)
-    dxy = yf.download("DX-Y.NYB", period=period, interval=interval)
+    data = safe_yf_download(symbol, period=period, interval=interval)
+    dxy = safe_yf_download("DX-Y.NYB", period=period, interval=interval)
 
     # Fix MultiIndex columns for newer pandas versions
     if isinstance(data.columns, pd.MultiIndex):
@@ -361,7 +382,7 @@ def get_market_context(period: str, interval: str):
     }
     out = {}
     for key, ticker in symbols.items():
-        ctx_df = yf.download(ticker, period=period, interval=interval)
+        ctx_df = safe_yf_download(ticker, period=period, interval=interval)
         if isinstance(ctx_df.columns, pd.MultiIndex):
             ctx_df.columns = ctx_df.columns.get_level_values(0)
         out[key] = ctx_df
@@ -372,7 +393,7 @@ def get_higher_timeframe(symbol: str, base_interval: str):
     higher = mapping.get(base_interval, "1d")
 
     period = "60d" if higher in ["1m", "5m", "15m"] else "120d" if higher in ["1h", "4h"] else "5y"
-    data = yf.download(symbol, period=period, interval=higher)
+    data = safe_yf_download(symbol, period=period, interval=higher)
     if isinstance(data.columns, pd.MultiIndex):
         data.columns = data.columns.get_level_values(0)
     return data, higher
@@ -539,14 +560,14 @@ def get_real_yields() -> dict:
                 df.columns = df.columns.get_level_values(0)
             return df
 
-        tn10y = normalize_cols(yf.download("^TNX", period="1mo", interval="1d"))
+        tn10y = normalize_cols(safe_yf_download("^TNX", period="1mo", interval="1d"))
         if tn10y.empty or "Close" not in tn10y.columns:
             return {'nominal_yield': 0, 'inflation_rate': 0, 'real_yield': 0, 'trend': 'neutral'}
 
         current_yield = float(tn10y["Close"].dropna().iloc[-1])
 
         # CPI ticker in yfinance is unstable; use TIP (inflation-linked ETF) as proxy.
-        tip = normalize_cols(yf.download("TIP", period="1y", interval="1mo"))
+        tip = normalize_cols(safe_yf_download("TIP", period="1y", interval="1mo"))
         if not tip.empty and "Close" in tip.columns and len(tip["Close"].dropna()) >= 2:
             prev_tip = float(tip["Close"].dropna().iloc[-2])
             curr_tip = float(tip["Close"].dropna().iloc[-1])
@@ -573,7 +594,7 @@ def get_fed_watch_data() -> dict:
     try:
         # This would typically use a Fed data API
         # For now, we'll simulate with recent market data
-        fed_funds = yf.download("^FVX", period="3mo", interval="1d")  # Fed Funds Futures
+        fed_funds = safe_yf_download("^FVX", period="3mo", interval="1d")  # Fed Funds Futures
         
         if not fed_funds.empty:
             current_rate = float(fed_funds["Close"].iloc[-1])
@@ -634,16 +655,23 @@ def get_economic_calendar() -> list:
     return events
 
 # --- Smart Position Sizing Functions ---
-def calculate_smart_position_size(base_lot_size: float, confidence: float, atr: float, 
-                                 sentiment_data: dict = None, risk_multiplier: float = 1.0) -> dict:
+def calculate_smart_position_size(
+    base_lot_size: float,
+    confidence: float,
+    atr: float,
+    atr_baseline: float | None = None,
+    sentiment_data: dict = None,
+    risk_multiplier: float = 1.0,
+) -> dict:
     """Calculate smart position size based on confidence, volatility, and sentiment"""
     
     # Base confidence adjustment
     confidence_factor = 0.5 + (confidence / 100.0) * 1.5  # Range: 0.5x to 2.0x
     
-    # Volatility adjustment (lower volatility = higher position size)
-    avg_atr = atr * 2  # Assume average ATR is 2x current ATR
-    volatility_factor = min(2.0, max(0.5, avg_atr / max(atr, 0.1)))
+    # Volatility adjustment (lower volatility vs baseline -> higher position size)
+    if atr_baseline is None or atr_baseline <= 0:
+        atr_baseline = atr
+    volatility_factor = min(2.0, max(0.5, atr_baseline / max(atr, 1e-9)))
     
     # Sentiment adjustment
     sentiment_factor = 1.0
@@ -865,7 +893,7 @@ def calculate_advanced_correlations(asset_name: str) -> dict:
     
     for asset_key, ticker in correlation_assets.items():
         try:
-            asset_df = yf.download(ticker, period="180d", interval="1d")
+            asset_df = safe_yf_download(ticker, period="180d", interval="1d")
             if not asset_df.empty:
                 asset_returns = asset_df["Close"].pct_change().dropna()
                 
@@ -1641,10 +1669,12 @@ if not df.empty:
     # --- Smart Position Sizing ---
     smart_sizing_data = None
     if enable_smart_sizing:
+        atr_baseline = safe_last(atr.rolling(50).mean(), default=curr_atr)
         smart_sizing_data = calculate_smart_position_size(
             base_lot_size=lot_size,
             confidence=confidence,
             atr=curr_atr,
+            atr_baseline=atr_baseline,
             sentiment_data=sentiment_data,
             risk_multiplier=risk_multiplier
         )
