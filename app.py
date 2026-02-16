@@ -1272,8 +1272,7 @@ asset_name = st.sidebar.selectbox(
     format_func=lambda x: T["gold"] if x == "GC=F" else T["silver"],
 )
 timeframe = st.sidebar.selectbox(T["timeframe"], ["1m", "5m", "15m", "1h", "4h", "1d"], index=3)
-compact_sidebar = st.sidebar.checkbox(tr("Compact Sidebar", "منوی جمع‌وجور"), value=True)
-view_mode = st.sidebar.selectbox(tr("View Mode", "حالت نمایش"), [tr("Simple", "ساده"), tr("Pro", "حرفه‌ای")], index=0)
+st.sidebar.caption(tr("Simple mode is active.", "حالت ساده فعال است."))
 
 st.sidebar.markdown("---")
 st.sidebar.subheader(T["risk_mgmt"])
@@ -1299,52 +1298,28 @@ live_window = st.sidebar.slider(T["live_window"], 50, 400, 150, 10)
 chart_mode = st.sidebar.selectbox(T["chart_mode"], [T["chart_plotly"], T["chart_tv"]], index=1)
 
 st.sidebar.markdown("---")
-if compact_sidebar:
-    with st.sidebar.expander(T["sentiment_analysis"], expanded=False):
-        enable_sentiment = st.checkbox(T["enable_sentiment"], value=False, key="enable_sentiment_compact")
-        news_api_key = st.text_input(
-            T["news_api_key"],
-            type="password",
-            help="Enter your NewsAPI key to enable sentiment analysis",
-            key="news_api_key_compact",
-        )
-    with st.sidebar.expander(T["smart_position_sizing"], expanded=False):
-        enable_smart_sizing = st.checkbox(T["confidence_based_sizing"], value=True, key="enable_smart_sizing_compact")
-        risk_multiplier = st.slider(T["risk_multiplier"], 0.5, 2.0, 1.0, 0.1, key="risk_multiplier_compact")
-    with st.sidebar.expander(T["backtesting"], expanded=False):
-        enable_backtest = st.checkbox(T["run_backtest"], value=False, key="enable_backtest_compact")
-        backtest_period = st.selectbox(
-            T["backtest_period"],
-            ["1 Month", "3 Months", "6 Months"],
-            index=1,
-            key="backtest_period_compact",
-        )
-    with st.sidebar.expander("UI/UX", expanded=False):
-        enable_audio_alerts = st.checkbox("Enable Audio Alerts", value=True, key="enable_audio_alerts_compact")
-        enable_animations = st.checkbox("Enable Animations", value=True, key="enable_animations_compact")
-else:
-    st.sidebar.subheader(T["sentiment_analysis"])
-    enable_sentiment = st.sidebar.checkbox(T["enable_sentiment"], value=False)
-    news_api_key = st.sidebar.text_input(
+with st.sidebar.expander(T["sentiment_analysis"], expanded=False):
+    enable_sentiment = st.checkbox(T["enable_sentiment"], value=False, key="enable_sentiment_compact")
+    news_api_key = st.text_input(
         T["news_api_key"],
         type="password",
         help="Enter your NewsAPI key to enable sentiment analysis",
+        key="news_api_key_compact",
     )
-
-    st.sidebar.markdown("---")
-    st.sidebar.subheader(T["smart_position_sizing"])
-    enable_smart_sizing = st.sidebar.checkbox(T["confidence_based_sizing"], value=True)
-    risk_multiplier = st.sidebar.slider(T["risk_multiplier"], 0.5, 2.0, 1.0, 0.1)
-
-    st.sidebar.markdown("---")
-    st.sidebar.subheader(T["backtesting"])
-    enable_backtest = st.sidebar.checkbox(T["run_backtest"], value=False)
-    backtest_period = st.sidebar.selectbox(T["backtest_period"], ["1 Month", "3 Months", "6 Months"], index=1)
-
-    st.sidebar.markdown("---")
-    st.sidebar.subheader("UI/UX Improvements")
-    enable_audio_alerts = st.sidebar.checkbox("Enable Audio Alerts", value=True)
-    enable_animations = st.sidebar.checkbox("Enable Animations", value=True)
+with st.sidebar.expander(T["smart_position_sizing"], expanded=False):
+    enable_smart_sizing = st.checkbox(T["confidence_based_sizing"], value=True, key="enable_smart_sizing_compact")
+    risk_multiplier = st.slider(T["risk_multiplier"], 0.5, 2.0, 1.0, 0.1, key="risk_multiplier_compact")
+with st.sidebar.expander(T["backtesting"], expanded=False):
+    enable_backtest = st.checkbox(T["run_backtest"], value=False, key="enable_backtest_compact")
+    backtest_period = st.selectbox(
+        T["backtest_period"],
+        ["1 Month", "3 Months", "6 Months"],
+        index=1,
+        key="backtest_period_compact",
+    )
+with st.sidebar.expander("UI/UX", expanded=False):
+    enable_audio_alerts = st.checkbox("Enable Audio Alerts", value=True, key="enable_audio_alerts_compact")
+    enable_animations = st.checkbox("Enable Animations", value=True, key="enable_animations_compact")
 
 # --- Main Logic ---
 period_map = {
@@ -1799,7 +1774,7 @@ if not df.empty:
         st.write(f"{T['corr_dxy']}: {correlation:.2f}")
 
     # --- Sentiment Analysis Display ---
-    if sentiment_data and view_mode == tr("Pro", "حرفه‌ای"):
+    if sentiment_data:
         sentiment_color = "#21c77a" if sentiment_data['overall'] == 'bullish' else "#ff5a7a" if sentiment_data['overall'] == 'bearish' else "#8a96ad"
         sentiment_display = T[sentiment_data['overall']] if sentiment_data['overall'] in T else sentiment_data['overall']
         
@@ -1825,13 +1800,9 @@ if not df.empty:
         """, unsafe_allow_html=True)
 
     # --- Macro Dashboard Display ---
-    if view_mode == tr("Pro", "حرفه‌ای"):
-        st.markdown(f"<div class='app-card'><h4 style='margin:0;'>{T['macro_dashboard']}</h4></div>", unsafe_allow_html=True)
-    
-    # Real Yields Section
     real_yield_color = "#21c77a" if real_yields_data['real_yield'] > 0 else "#ff5a7a" if real_yields_data['real_yield'] < 0 else "#8a96ad"
-    
-    if view_mode == tr("Pro", "حرفه‌ای"):
+    with st.expander(tr("Macro & Fundamental", "ماکرو و فاندامنتال"), expanded=False):
+        st.markdown(f"<div class='app-card'><h4 style='margin:0;'>{T['macro_dashboard']}</h4></div>", unsafe_allow_html=True)
         st.markdown(f"""
     <div class='app-card' style='border-left: 5px solid {real_yield_color}; margin-bottom: 15px;'>
         <h5 style='margin:0; color: var(--txt);'>{T['real_yields']}</h5>
@@ -1849,9 +1820,7 @@ if not df.empty:
         </div>
     </div>
         """, unsafe_allow_html=True)
-    
-    # Fed Watch Section
-    if view_mode == tr("Pro", "حرفه‌ای"):
+
         col1, col2, col3, col4 = st.columns(4)
         with col1:
             st.metric(T['current_rate'], f"{fed_watch_data['current_rate']:.2f}%")
@@ -1861,92 +1830,90 @@ if not df.empty:
             st.metric(T['prob_cut'], f"{fed_watch_data['prob_cut']:.1%}")
         with col4:
             st.metric(T['prob_hold'], f"{fed_watch_data['prob_hold']:.1%}")
-    
-    # Economic Calendar Section
-    if view_mode == tr("Pro", "حرفه‌ای"):
+
         st.markdown(f"<div class='app-card'><h5 style='margin:0;'>{T['economic_calendar']}</h5></div>", unsafe_allow_html=True)
-    
-    if economic_events and view_mode == tr("Pro", "حرفه‌ای"):
-        for event in economic_events:
-            impact_color = "#ff5a7a" if event['impact'] == 'High' else "#ffa500" if event['impact'] == 'Medium' else "#8a96ad"
-            
-            st.markdown(f"""
-            <div class='app-card' style='border-left: 3px solid {impact_color}; margin-bottom: 8px; padding: 10px;'>
-                <div style='display: flex; justify-content: space-between; align-items: center;'>
-                    <div>
-                        <strong>{event['event']}</strong>
-                        <span style='color: {impact_color}; font-weight: 600; margin-left: 10px;'>{event['impact']}</span>
-                    </div>
-                    <div style='text-align: right;'>
-                        <div>{event['date']} {event['time']}</div>
-                        <div style='font-size: 0.9em; opacity: 0.8;'>{T['forecast']}: {event['forecast']} | {T['previous']}: {event['previous']}</div>
+        if economic_events:
+            for event in economic_events:
+                impact_color = "#ff5a7a" if event['impact'] == 'High' else "#ffa500" if event['impact'] == 'Medium' else "#8a96ad"
+                st.markdown(f"""
+                <div class='app-card' style='border-left: 3px solid {impact_color}; margin-bottom: 8px; padding: 10px;'>
+                    <div style='display: flex; justify-content: space-between; align-items: center;'>
+                        <div>
+                            <strong>{event['event']}</strong>
+                            <span style='color: {impact_color}; font-weight: 600; margin-left: 10px;'>{event['impact']}</span>
+                        </div>
+                        <div style='text-align: right;'>
+                            <div>{event['date']} {event['time']}</div>
+                            <div style='font-size: 0.9em; opacity: 0.8;'>{T['forecast']}: {event['forecast']} | {T['previous']}: {event['previous']}</div>
+                        </div>
                     </div>
                 </div>
-            </div>
-            """, unsafe_allow_html=True)
+                """, unsafe_allow_html=True)
 
     # --- Backtesting Results Display ---
-    if backtest_data and view_mode == tr("Pro", "حرفه‌ای"):
-        st.markdown(f"<div class='app-card'><h4 style='margin:0;'>{T['backtest_results']}</h4></div>", unsafe_allow_html=True)
-        
-        # Display key metrics
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.metric(T['total_trades'], backtest_data['total_trades'])
-        with col2:
-            st.metric(T['win_rate'], f"{backtest_data['win_rate']:.1f}%")
-        with col3:
-            st.metric(T['total_return'], f"{backtest_data['total_return']:.2f}%")
-        with col4:
-            st.metric(T['max_drawdown'], f"{backtest_data['max_drawdown']:.2f}%")
-        
-        # Additional metrics
-        col5, col6, col7 = st.columns(3)
-        with col5:
-            st.metric(T['profit_factor'], f"{backtest_data['profit_factor']:.2f}")
-        with col6:
-            st.metric(T['avg_win'], f"{backtest_data['avg_win']:.2f}%")
-        with col7:
-            st.metric(T['avg_loss'], f"{backtest_data['avg_loss']:.2f}%")
-        
-        # Recent trades
-        if backtest_data['trades']:
-            st.markdown(f"<div class='app-card'><h5 style='margin:0;'>Recent Trades</h5></div>", unsafe_allow_html=True)
+    if backtest_data:
+        with st.expander(T["backtest_results"], expanded=False):
+            st.markdown(f"<div class='app-card'><h4 style='margin:0;'>{T['backtest_results']}</h4></div>", unsafe_allow_html=True)
             
-            trades_df = pd.DataFrame(backtest_data['trades'])
-            trades_df['PnL'] = trades_df['pnl'].apply(lambda x: f"{x:.2f}%")
-            trades_df['PnL'] = trades_df['PnL'].apply(lambda x: f"<span style='color: #21c77a;'>{x}</span>" if float(x.replace('%', '')) > 0 else f"<span style='color: #ff5a7a;'>{x}</span>")
+            # Display key metrics
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric(T['total_trades'], backtest_data['total_trades'])
+            with col2:
+                st.metric(T['win_rate'], f"{backtest_data['win_rate']:.1f}%")
+            with col3:
+                st.metric(T['total_return'], f"{backtest_data['total_return']:.2f}%")
+            with col4:
+                st.metric(T['max_drawdown'], f"{backtest_data['max_drawdown']:.2f}%")
             
-            display_df = trades_df[['entry_date', 'type', 'entry_price', 'exit_price', 'PnL']].copy()
-            display_df.columns = [T['entry_date'] if col == 'entry_date' else col for col in display_df.columns]
+            # Additional metrics
+            col5, col6, col7 = st.columns(3)
+            with col5:
+                st.metric(T['profit_factor'], f"{backtest_data['profit_factor']:.2f}")
+            with col6:
+                st.metric(T['avg_win'], f"{backtest_data['avg_win']:.2f}%")
+            with col7:
+                st.metric(T['avg_loss'], f"{backtest_data['avg_loss']:.2f}%")
             
-            st.markdown(display_df.to_html(escape=False, index=False), unsafe_allow_html=True)
+            # Recent trades
+            if backtest_data['trades']:
+                st.markdown(f"<div class='app-card'><h5 style='margin:0;'>Recent Trades</h5></div>", unsafe_allow_html=True)
+                
+                trades_df = pd.DataFrame(backtest_data['trades'])
+                trades_df['PnL'] = trades_df['pnl'].apply(lambda x: f"{x:.2f}%")
+                trades_df['PnL'] = trades_df['PnL'].apply(lambda x: f"<span style='color: #21c77a;'>{x}</span>" if float(x.replace('%', '')) > 0 else f"<span style='color: #ff5a7a;'>{x}</span>")
+                
+                display_df = trades_df[['entry_date', 'type', 'entry_price', 'exit_price', 'PnL']].copy()
+                display_df.columns = [T['entry_date'] if col == 'entry_date' else col for col in display_df.columns]
+                
+                st.markdown(display_df.to_html(escape=False, index=False), unsafe_allow_html=True)
 
     # --- Advanced Correlation Analysis Display ---
-    if correlation_data and view_mode == tr("Pro", "حرفه‌ای"):
-        st.markdown(f"<div class='app-card'><h4 style='margin:0;'>{T['correlation_matrix']}</h4></div>", unsafe_allow_html=True)
-        
-        # Create and display heatmap
-        heatmap_fig = create_correlation_heatmap(correlation_data)
-        st.plotly_chart(heatmap_fig, use_container_width=True)
-        
-        # Display detailed correlation table
-        correlation_rows = []
-        for asset_key, data in correlation_data.items():
-            asset_name = T[asset_key]
-            trend_text = T[data['trend']]
-            trend_color = "#21c77a" if data['trend'] == 'strengthening' else "#ff5a7a" if data['trend'] == 'weakening' else "#8a96ad"
+    if correlation_data:
+        with st.expander(T["correlation_matrix"], expanded=False):
+            st.markdown(f"<div class='app-card'><h4 style='margin:0;'>{T['correlation_matrix']}</h4></div>", unsafe_allow_html=True)
             
-            correlation_rows.append({
-                T['correlation_with']: asset_name,
-                T['correlation_30d']: f"{data['corr_30d']:.3f}",
-                T['correlation_90d']: f"{data['corr_90d']:.3f}",
-                T['correlation_180d']: f"{data['corr_180d']:.3f}",
-                T['correlation_trend']: f"<span style='color: {trend_color}; font-weight: 600;'>{trend_text}</span>"
-            })
-        
-        correlation_df = pd.DataFrame(correlation_rows)
-        st.markdown(correlation_df.to_html(escape=False, index=False), unsafe_allow_html=True)
+            # Create and display heatmap
+            heatmap_fig = create_correlation_heatmap(correlation_data)
+            st.plotly_chart(heatmap_fig, use_container_width=True)
+            
+            # Display detailed correlation table
+            correlation_rows = []
+            for asset_key, data in correlation_data.items():
+                asset_name = T[asset_key]
+                trend_text = T[data['trend']]
+                trend_color = "#21c77a" if data['trend'] == 'strengthening' else "#ff5a7a" if data['trend'] == 'weakening' else "#8a96ad"
+                
+                correlation_rows.append({
+                    T['correlation_with']: asset_name,
+                    T['correlation_30d']: f"{data['corr_30d']:.3f}",
+                    T['correlation_90d']: f"{data['corr_90d']:.3f}",
+                    T['correlation_180d']: f"{data['corr_180d']:.3f}",
+                    T['correlation_trend']: f"<span style='color: {trend_color}; font-weight: 600;'>{trend_text}</span>"
+                })
+            
+            correlation_df = pd.DataFrame(correlation_rows)
+            st.markdown(correlation_df.to_html(escape=False, index=False), unsafe_allow_html=True)
 
     sig_text_map = {"BUY": T["sig_buy"], "SELL": T["sig_sell"], "NEUTRAL": T["sig_neutral"]}
     method_rows = []
