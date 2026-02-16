@@ -345,27 +345,39 @@ def calculate_overall_sentiment(articles: list) -> dict:
 
 # --- Macro Economic Functions ---
 def get_real_yields() -> dict:
-    """Calculate real yields (nominal yield - inflation)"""
+    """Calculate real yields (nominal yield - inflation proxy)."""
     try:
-        # Get 10-year Treasury yield
-        tn10y = yf.download("^TNX", period="1mo", interval="1d")
-        # Get CPI data (inflation proxy)
-        cpi = yf.download("CPI", period="1y", interval="1mo")
-        
-        if not tn10y.empty and not cpi.empty:
-            current_yield = float(tn10y["Close"].iloc[-1])
-            # Calculate inflation rate from CPI
-            if len(cpi) >= 2:
-                inflation_rate = ((cpi["Close"].iloc[-1] - cpi["Close"].iloc[-2]) / cpi["Close"].iloc[-2]) * 100
-                real_yield = current_yield - inflation_rate
-                return {
-                    'nominal_yield': current_yield,
-                    'inflation_rate': inflation_rate,
-                    'real_yield': real_yield,
-                    'trend': 'positive' if real_yield > 0 else 'negative'
-                }
+        def normalize_cols(df: pd.DataFrame) -> pd.DataFrame:
+            if isinstance(df.columns, pd.MultiIndex):
+                df.columns = df.columns.get_level_values(0)
+            return df
+
+        tn10y = normalize_cols(yf.download("^TNX", period="1mo", interval="1d"))
+        if tn10y.empty or "Close" not in tn10y.columns:
+            return {'nominal_yield': 0, 'inflation_rate': 0, 'real_yield': 0, 'trend': 'neutral'}
+
+        current_yield = float(tn10y["Close"].dropna().iloc[-1])
+
+        # CPI ticker in yfinance is unstable; use TIP (inflation-linked ETF) as proxy.
+        tip = normalize_cols(yf.download("TIP", period="1y", interval="1mo"))
+        if not tip.empty and "Close" in tip.columns and len(tip["Close"].dropna()) >= 2:
+            prev_tip = float(tip["Close"].dropna().iloc[-2])
+            curr_tip = float(tip["Close"].dropna().iloc[-1])
+            inflation_rate = ((curr_tip - prev_tip) / prev_tip) * 100 if prev_tip != 0 else 0.0
+        else:
+            # Fallback conservative default when proxy is unavailable
+            inflation_rate = 2.5
+
+        real_yield = current_yield - inflation_rate
+        return {
+            'nominal_yield': current_yield,
+            'inflation_rate': inflation_rate,
+            'real_yield': real_yield,
+            'trend': 'positive' if real_yield > 0 else 'negative'
+        }
     except Exception as e:
-        st.error(f"Error calculating real yields: {e}")
+        # Keep app alive on data-source failures
+        st.warning(f"Real yield data fallback: {e}")
     
     return {'nominal_yield': 0, 'inflation_rate': 0, 'real_yield': 0, 'trend': 'neutral'}
 
