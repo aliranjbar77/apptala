@@ -51,24 +51,57 @@ st.markdown(
         }
         .stApp {
             color: var(--txt);
-            background: linear-gradient(135deg, #0a0f1e 0%, #1a2332 50%, #0f1824 100%);
+            background: linear-gradient(180deg, #0a0f1e 0%, #0f1727 100%);
+        }
+        .block-container {
+            max-width: 1200px;
+            padding-top: 1.2rem;
+            padding-bottom: 1.2rem;
         }
         .app-card {
-            background: rgba(18, 26, 43, 0.7);
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 16px;
-            padding: 20px;
-            margin: 10px 0;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+            background: rgba(18, 26, 43, 0.88);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 12px;
+            padding: 14px 16px;
+            margin: 8px 0;
+            box-shadow: 0 3px 14px rgba(0, 0, 0, 0.18);
         }
         .metric-card {
-            background: rgba(255, 255, 255, 0.05);
-            backdrop-filter: blur(8px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 10px;
+            padding: 12px;
+            margin: 4px 0;
+        }
+        [data-testid="stMetric"] {
+            background: rgba(18, 26, 43, 0.82);
+            border: 1px solid rgba(255, 255, 255, 0.08);
             border-radius: 12px;
-            padding: 15px;
-            margin: 5px 0;
+            padding: 10px 12px;
+        }
+        [data-testid="stMetricLabel"] {
+            color: #cdd9f3 !important;
+            font-size: 0.95rem !important;
+            font-weight: 600 !important;
+        }
+        [data-testid="stMetricValue"] {
+            color: #ffffff !important;
+            font-size: 1.55rem !important;
+            font-weight: 700 !important;
+        }
+        [data-testid="stMetricDelta"] {
+            color: #a9b9d6 !important;
+        }
+        h1, h2, h3, h4, h5 {
+            color: #f4f8ff !important;
+            letter-spacing: 0.2px;
+        }
+        p, span, label, div {
+            color: inherit;
+        }
+        [data-testid="stSidebar"] {
+            background: #0d1424;
+            border-right: 1px solid rgba(255, 255, 255, 0.07);
         }
         .stButton > button {
             background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%);
@@ -99,35 +132,32 @@ st.markdown(
         .slide-in {
             animation: slideIn 0.5s ease-out;
         }
-        .signal-buy { 
-            background: linear-gradient(135deg, rgba(33, 199, 122, 0.1) 0%, rgba(18, 26, 43, 0.8) 100%);
-            backdrop-filter: blur(15px);
-            border: 1px solid rgba(255, 255, 255, 0.15);
+        .signal-buy {
+            background: linear-gradient(180deg, rgba(33, 199, 122, 0.12) 0%, rgba(18, 26, 43, 0.95) 100%);
+            border: 1px solid rgba(255, 255, 255, 0.08);
             border-left: 5px solid var(--buy);
-            padding: 25px;
-            border-radius: 20px;
+            padding: 18px;
+            border-radius: 12px;
             text-align: center;
-            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
+            box-shadow: 0 4px 18px rgba(0, 0, 0, 0.22);
         }
-        .signal-sell { 
-            background: linear-gradient(135deg, rgba(255, 90, 122, 0.1) 0%, rgba(18, 26, 43, 0.8) 100%);
-            backdrop-filter: blur(15px);
-            border: 1px solid rgba(255, 255, 255, 0.15);
+        .signal-sell {
+            background: linear-gradient(180deg, rgba(255, 90, 122, 0.12) 0%, rgba(18, 26, 43, 0.95) 100%);
+            border: 1px solid rgba(255, 255, 255, 0.08);
             border-left: 5px solid var(--sell);
-            padding: 25px;
-            border-radius: 20px;
+            padding: 18px;
+            border-radius: 12px;
             text-align: center;
-            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
+            box-shadow: 0 4px 18px rgba(0, 0, 0, 0.22);
         }
-        .signal-neutral { 
-            background: linear-gradient(135deg, rgba(138, 150, 173, 0.1) 0%, rgba(18, 26, 43, 0.8) 100%);
-            backdrop-filter: blur(15px);
-            border: 1px solid rgba(255, 255, 255, 0.15);
+        .signal-neutral {
+            background: linear-gradient(180deg, rgba(138, 150, 173, 0.12) 0%, rgba(18, 26, 43, 0.95) 100%);
+            border: 1px solid rgba(255, 255, 255, 0.08);
             border-left: 5px solid var(--neutral);
-            padding: 25px;
-            border-radius: 20px;
+            padding: 18px;
+            border-radius: 12px;
             text-align: center;
-            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
+            box-shadow: 0 4px 18px rgba(0, 0, 0, 0.22);
         }
         .method-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
         .method-card {
@@ -142,9 +172,12 @@ st.markdown(
         .pill-buy { background: rgba(33,199,122,0.2); color: #79f0b4; }
         .pill-sell { background: rgba(255,90,122,0.2); color: #ff9eb0; }
         .pill-neutral { background: rgba(138,150,173,0.2); color: #c7d2e9; }
-        .method-reason { font-size: 12px; color: var(--muted); line-height: 1.4; }
+        .method-reason { font-size: 12px; color: #bcc9e3; line-height: 1.4; }
         @media (max-width: 900px) {
             .method-grid { grid-template-columns: 1fr; }
+            [data-testid="stMetricValue"] { font-size: 1.28rem !important; }
+            [data-testid="stMetricLabel"] { font-size: 0.88rem !important; }
+            .block-container { padding-top: 0.8rem; padding-left: 0.8rem; padding-right: 0.8rem; }
         }
     </style>
     """,
