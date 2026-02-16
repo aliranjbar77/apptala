@@ -18,7 +18,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 1
           lfs: true
 
       - name: Resolve Hugging Face token
@@ -43,13 +43,25 @@ jobs:
           curl -fsSL https://huggingface.co/api/whoami-v2 \
             -H "Authorization: Bearer ${HF_TOKEN}" >/dev/null
 
-      - name: Push to Hugging Face Space
+      - name: Push snapshot to Hugging Face Space
         run: |
           set -euo pipefail
 
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git config --global user.name "github-actions[bot]"
+          SNAP_DIR="$(mktemp -d)"
+          rsync -a --delete \
+            --exclude ".git/" \
+            --exclude ".github/" \
+            --exclude "github/" \
+            --exclude "__pycache__/" \
+            --exclude "*.pyc" \
+            ./ "$SNAP_DIR"/
 
-          git remote remove hf 2>/dev/null || true
+          cd "$SNAP_DIR"
+          git init
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git add -A
+          git commit -m "Sync from GitHub ${GITHUB_SHA}"
+          git branch -M main
           git remote add hf "https://oauth2:${HF_TOKEN}@huggingface.co/spaces/${HF_SPACE_REPO}"
-          git push --force hf HEAD:main
+          git push --force hf main
