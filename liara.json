@@ -1,0 +1,8 @@
+{
+  "platform": "python",
+  "app": "نام-برنامه-تو-در-لیارا",
+  "port": 8000,
+  "python": {
+    "version": "3.10"
+  }
+}
