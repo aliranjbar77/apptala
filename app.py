@@ -486,6 +486,10 @@ def compute_signal_probability(
     method_net: float,
     method_total_weight: float,
     regime_name: str,
+    backtest_win_rate: float | None = None,
+    backtest_trades: int = 0,
+    oos_win_rate: float | None = None,
+    oos_folds: int = 0,
 ) -> dict:
     agreement = abs(method_net) / max(method_total_weight, 1e-9)
     base_prob = 48.0 + abs(bias_score) * 0.28 + confidence * 0.22 + agreement * 8.0
@@ -493,9 +497,43 @@ def compute_signal_probability(
         base_prob += 3.0
     elif regime_name == "HIGH_VOL":
         base_prob -= 4.0
-    win_prob = max(35.0, min(92.0, base_prob))
+    raw_win_prob = max(35.0, min(92.0, base_prob))
+
+    observed_rates = []
+    observed_weights = []
+    if backtest_win_rate is not None and backtest_trades > 0:
+        observed_rates.append(float(backtest_win_rate))
+        observed_weights.append(min(1.0, backtest_trades / 120.0))
+    if oos_win_rate is not None and oos_folds > 0:
+        observed_rates.append(float(oos_win_rate))
+        observed_weights.append(min(1.0, oos_folds / 4.0))
+
+    if observed_rates:
+        empirical_rate = float(np.average(observed_rates, weights=observed_weights))
+        calib_weight = min(0.7, 0.25 + 0.45 * min(1.0, sum(observed_weights) / 1.6))
+    else:
+        empirical_rate = 50.0
+        calib_weight = 0.0
+
+    win_prob = (1.0 - calib_weight) * raw_win_prob + calib_weight * empirical_rate
+    win_prob = max(38.0, min(89.0, win_prob))
     loss_prob = 100.0 - win_prob
-    return {"win_prob": win_prob, "loss_prob": loss_prob, "agreement": agreement * 100.0}
+
+    data_quality = "LOW"
+    if calib_weight >= 0.5:
+        data_quality = "HIGH"
+    elif calib_weight >= 0.25:
+        data_quality = "MEDIUM"
+
+    return {
+        "win_prob": win_prob,
+        "loss_prob": loss_prob,
+        "raw_win_prob": raw_win_prob,
+        "agreement": agreement * 100.0,
+        "empirical_rate": empirical_rate,
+        "calibration_weight": calib_weight * 100.0,
+        "data_quality": data_quality,
+    }
 
 
 def load_signal_journal(path: Path = JOURNAL_PATH) -> pd.DataFrame:
@@ -1917,6 +1955,10 @@ if not df.empty:
         method_net=method_net,
         method_total_weight=method_total_weight,
         regime_name=regime_data["name"],
+        backtest_win_rate=(backtest_data.get("win_rate") if backtest_data else None),
+        backtest_trades=int(backtest_data.get("total_trades", 0)) if backtest_data else 0,
+        oos_win_rate=(walkforward_data.get("oos_win_rate") if walkforward_data else None),
+        oos_folds=int(walkforward_data.get("folds", 0)) if walkforward_data else 0,
     )
 
     signal = "NEUTRAL"
@@ -1959,6 +2001,8 @@ if not df.empty:
         signal = "NEUTRAL"
         confidence = min(confidence, 35.0)
         bearish_reasons.append(risk_guard_reason)
+        signal_prob["win_prob"] = min(signal_prob["win_prob"], 50.0)
+        signal_prob["loss_prob"] = 100.0 - signal_prob["win_prob"]
 
     # --- Risk Management ---
     is_long = signal in ["BUY", "STRONG BUY"]
@@ -2090,8 +2134,8 @@ if not df.empty:
     )
     st.caption(
         tr(
-            f"Win prob: {signal_prob['win_prob']:.1f}% | Loss prob: {signal_prob['loss_prob']:.1f}% | Method agreement: {signal_prob['agreement']:.1f}% | Expected move: {expected_move_pct:.2f}% | Expected DD: {expected_drawdown_pct:.2f}%",
-            f"احتمال موفقیت: {signal_prob['win_prob']:.1f}% | احتمال شکست: {signal_prob['loss_prob']:.1f}% | اجماع روش‌ها: {signal_prob['agreement']:.1f}% | حرکت موردانتظار: {expected_move_pct:.2f}% | افت موردانتظار: {expected_drawdown_pct:.2f}%"
+            f"Calibrated win prob: {signal_prob['win_prob']:.1f}% (raw {signal_prob['raw_win_prob']:.1f}%) | Empirical ref: {signal_prob['empirical_rate']:.1f}% | Calibration weight: {signal_prob['calibration_weight']:.0f}% | Data quality: {signal_prob['data_quality']} | Expected move: {expected_move_pct:.2f}% | Expected DD: {expected_drawdown_pct:.2f}%",
+            f"احتمال موفقیت کالیبره: {signal_prob['win_prob']:.1f}% (خام {signal_prob['raw_win_prob']:.1f}%) | مرجع تجربی: {signal_prob['empirical_rate']:.1f}% | وزن کالیبراسیون: {signal_prob['calibration_weight']:.0f}% | کیفیت داده: {signal_prob['data_quality']} | حرکت موردانتظار: {expected_move_pct:.2f}% | افت موردانتظار: {expected_drawdown_pct:.2f}%"
         )
     )
 
