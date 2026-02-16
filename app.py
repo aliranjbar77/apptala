@@ -83,18 +83,42 @@ st.markdown(
             color: #cdd9f3 !important;
             font-size: 0.95rem !important;
             font-weight: 600 !important;
+            opacity: 1 !important;
         }
         [data-testid="stMetricValue"] {
             color: #ffffff !important;
             font-size: 1.55rem !important;
             font-weight: 700 !important;
+            opacity: 1 !important;
         }
         [data-testid="stMetricDelta"] {
             color: #a9b9d6 !important;
+            opacity: 1 !important;
+        }
+        [data-testid="stMetricLabel"] p,
+        [data-testid="stMetricValue"] > div,
+        [data-testid="stMetricDelta"] > div {
+            color: inherit !important;
+            opacity: 1 !important;
+            text-shadow: 0 0 0 transparent !important;
+        }
+        [data-testid="stMetric"] * {
+            filter: none !important;
         }
         h1, h2, h3, h4, h5 {
             color: #f4f8ff !important;
             letter-spacing: 0.2px;
+        }
+        .app-card strong,
+        .app-card b,
+        .app-card h4,
+        .app-card h5 {
+            color: #eef4ff !important;
+        }
+        .app-card div,
+        .app-card span,
+        .app-card p {
+            color: #dbe7ff;
         }
         p, span, label, div {
             color: inherit;
