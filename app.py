@@ -54,16 +54,16 @@ st.markdown(
             background: linear-gradient(180deg, #0a0f1e 0%, #0f1727 100%);
         }
         .block-container {
-            max-width: 1200px;
-            padding-top: 1.2rem;
-            padding-bottom: 1.2rem;
+            max-width: 1080px;
+            padding-top: 0.8rem;
+            padding-bottom: 1rem;
         }
         .app-card {
             background: rgba(18, 26, 43, 0.88);
             border: 1px solid rgba(255, 255, 255, 0.08);
             border-radius: 12px;
-            padding: 14px 16px;
-            margin: 8px 0;
+            padding: 12px 14px;
+            margin: 6px 0;
             box-shadow: 0 3px 14px rgba(0, 0, 0, 0.18);
         }
         .metric-card {
@@ -278,6 +278,23 @@ st.markdown(
         }
         .hero-signal .h-label { color: #a9bcde; font-size: 12px; margin-right: 8px; }
         .hero-signal .h-value { color: #f3f7ff; font-size: 15px; font-weight: 700; margin-right: 14px; }
+        .kpi-strip {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+        .kpi-tile {
+            border-radius: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            padding: 8px 10px;
+            background: rgba(18, 26, 43, 0.72);
+        }
+        .kpi-tile .k { font-size: 11px; color: #a9bcde; }
+        .kpi-tile .v { font-size: 16px; font-weight: 700; color: #f6f9ff; }
+        .kpi-buy { border-left: 4px solid #21c77a; }
+        .kpi-sell { border-left: 4px solid #ff5a7a; }
+        .kpi-neutral { border-left: 4px solid #8a96ad; }
         .method-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
         .method-card {
             background: linear-gradient(180deg, #101a2f, #0d1628);
@@ -294,9 +311,14 @@ st.markdown(
         .method-reason { font-size: 12px; color: #bcc9e3; line-height: 1.4; }
         @media (max-width: 900px) {
             .method-grid { grid-template-columns: 1fr; }
+            .kpi-strip { grid-template-columns: 1fr; }
             [data-testid="stMetricValue"] { font-size: 1.28rem !important; }
             [data-testid="stMetricLabel"] { font-size: 0.88rem !important; }
             .block-container { padding-top: 0.8rem; padding-left: 0.8rem; padding-right: 0.8rem; }
+        }
+        @media (min-width: 1024px) {
+            .block-container { padding-top: 1.05rem; }
+            .app-card { padding: 14px 16px; }
         }
     </style>
     """,
@@ -1246,6 +1268,12 @@ if is_light_theme:
             }
             .hero-signal .h-label { color: #4f6487 !important; }
             .hero-signal .h-value { color: #0f1e39 !important; }
+            .kpi-tile {
+                background: #ffffff !important;
+                border: 1px solid #d6e0f0 !important;
+            }
+            .kpi-tile .k { color: #4f6487 !important; }
+            .kpi-tile .v { color: #0f1e39 !important; }
         </style>
         """,
         unsafe_allow_html=True,
@@ -1276,10 +1304,10 @@ st.sidebar.caption(tr("Simple mode is active.", "حالت ساده فعال اس
 
 st.sidebar.markdown("---")
 st.sidebar.subheader(T["risk_mgmt"])
-acc_balance = st.sidebar.number_input(T["balance"], value=1000)
-risk_pct = st.sidebar.slider(T["risk_pct"], 0.5, 5.0, 2.0)
-atr_mult = st.sidebar.slider(T["atr_mult"], 1.0, 4.0, 2.0, 0.5)
-rr_ratio = st.sidebar.slider(T["rr"], 1.0, 5.0, 2.0, 0.5)
+acc_balance = st.sidebar.number_input(T["balance"], value=1000, key="balance_input")
+risk_pct = st.sidebar.slider(T["risk_pct"], 0.5, 5.0, 2.0, key="risk_pct_input")
+atr_mult = st.sidebar.slider(T["atr_mult"], 1.0, 4.0, 2.0, 0.5, key="atr_mult_input")
+rr_ratio = st.sidebar.slider(T["rr"], 1.0, 5.0, 2.0, 0.5, key="rr_ratio_input")
 
 st.sidebar.markdown("---")
 st.sidebar.subheader(T["contract_size"])
@@ -1320,6 +1348,21 @@ with st.sidebar.expander(T["backtesting"], expanded=False):
 with st.sidebar.expander("UI/UX", expanded=False):
     enable_audio_alerts = st.checkbox("Enable Audio Alerts", value=True, key="enable_audio_alerts_compact")
     enable_animations = st.checkbox("Enable Animations", value=True, key="enable_animations_compact")
+
+st.sidebar.markdown("---")
+st.sidebar.subheader(tr("Quick Actions", "اقدامات سریع"))
+qa1, qa2 = st.sidebar.columns(2)
+if qa1.button(tr("Reset Risk", "ریست ریسک"), use_container_width=True):
+    st.session_state["balance_input"] = 1000.0
+    st.session_state["risk_pct_input"] = 2.0
+    st.session_state["atr_mult_input"] = 2.0
+    st.session_state["rr_ratio_input"] = 2.0
+    st.session_state["risk_multiplier_compact"] = 1.0
+    st.session_state["enable_smart_sizing_compact"] = True
+    st.rerun()
+if qa2.button(tr("Reload", "بارگذاری"), use_container_width=True):
+    st.rerun()
+snapshot_requested = st.sidebar.button(tr("Chart Snapshot (HTML)", "خروجی چارت (HTML)"), use_container_width=True)
 
 # --- Main Logic ---
 period_map = {
@@ -1581,6 +1624,14 @@ if not df.empty:
         )
         # Use the adjusted lot size
         lot_size = smart_sizing_data['adjusted_lot_size']
+        with st.sidebar.expander(tr("Smart Sizing Output", "خروجی پوزیشن‌سایزینگ هوشمند"), expanded=False):
+            st.write(f"{T['base_position']}: {smart_sizing_data['base_lot_size']:.3f}")
+            st.write(f"{T['adjusted_position']}: {smart_sizing_data['adjusted_lot_size']:.3f}")
+            st.write(f"{T['sizing_factor']}: {smart_sizing_data['sizing_factor']:.2f}x")
+            st.write(f"{T['volatility_adjustment']}: {smart_sizing_data['volatility_factor']:.2f}x")
+            if sentiment_data:
+                st.write(f"{T['sentiment_adjustment']}: {smart_sizing_data['sentiment_factor']:.2f}x")
+            st.write(f"{T['risk_multiplier']}: {smart_sizing_data['risk_multiplier']:.2f}x")
 
     # --- Per-method signal box (technical + fundamental) ---
     prev_high_20 = safe_last(high.shift(1).rolling(20).max(), default=curr_price)
@@ -1722,6 +1773,33 @@ if not df.empty:
         unsafe_allow_html=True,
     )
 
+    signal_kpi_class = "kpi-neutral"
+    if signal in ["BUY", "STRONG BUY"]:
+        signal_kpi_class = "kpi-buy"
+    elif signal in ["SELL", "STRONG SELL"]:
+        signal_kpi_class = "kpi-sell"
+    confidence_kpi_class = "kpi-buy" if confidence >= 70 else "kpi-neutral" if confidence >= 45 else "kpi-sell"
+    bias_kpi_class = "kpi-buy" if bias_score > 10 else "kpi-sell" if bias_score < -10 else "kpi-neutral"
+    st.markdown(
+        f"""
+        <div class="kpi-strip">
+            <div class="kpi-tile {signal_kpi_class}">
+                <div class="k">{tr("Signal", "سیگنال")}</div>
+                <div class="v">{signal_display}</div>
+            </div>
+            <div class="kpi-tile {confidence_kpi_class}">
+                <div class="k">{T["confidence"]}</div>
+                <div class="v">{confidence:.0f}%</div>
+            </div>
+            <div class="kpi-tile {bias_kpi_class}">
+                <div class="k">{T["bias_score"]}</div>
+                <div class="v">{bias_score:.1f}</div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
     c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric(T["price"], f"${curr_price:,.2f}")
     c2.metric(T["rsi"], f"{curr_rsi:.2f}")
@@ -1755,11 +1833,6 @@ if not df.empty:
             st.write(f"{T['base_position']}: {smart_sizing_data['base_lot_size']:.3f}")
             st.write(f"{T['adjusted_position']}: {smart_sizing_data['adjusted_lot_size']:.3f}")
             st.write(f"{T['sizing_factor']}: {smart_sizing_data['sizing_factor']:.2f}x")
-            with st.expander(T["smart_position_sizing"]):
-                st.write(f"{T['volatility_adjustment']}: {smart_sizing_data['volatility_factor']:.2f}x")
-                if sentiment_data:
-                    st.write(f"{T['sentiment_adjustment']}: {smart_sizing_data['sentiment_factor']:.2f}x")
-                st.write(f"{T['risk_multiplier']}: {smart_sizing_data['risk_multiplier']:.2f}x")
         else:
             st.write(f"{T['lot_size']}: {lot_size:.3f}")
         st.write(f"{T['entry_zone']}: {entry_low:,.2f} - {entry_high:,.2f}")
@@ -1963,6 +2036,7 @@ if not df.empty:
     st.dataframe(styled_df, use_container_width=True, hide_index=True)
 
     # --- Chart ---
+    chart_snapshot_html = None
     if chart_mode == T["chart_tv"]:
         tv_symbol_map = {
             "GC=F": "OANDA:XAUUSD",
@@ -2004,6 +2078,8 @@ if not df.empty:
         </div>
         """
         components.html(tv_widget, height=780)
+        if snapshot_requested:
+            st.sidebar.info(tr("Snapshot export is available in Plotly chart mode.", "خروجی Snapshot فقط در حالت چارت Plotly فعال است."))
     else:
         fig = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.7, 0.3], vertical_spacing=0.04)
 
@@ -2065,6 +2141,15 @@ if not df.empty:
 
         fig.update_layout(height=800, template="plotly_dark", xaxis_rangeslider_visible=False)
         st.plotly_chart(fig, use_container_width=True)
+        if snapshot_requested:
+            chart_snapshot_html = fig.to_html(include_plotlyjs="cdn")
+            st.sidebar.download_button(
+                label=tr("Download Snapshot", "دانلود Snapshot"),
+                data=chart_snapshot_html,
+                file_name=f"chart_snapshot_{asset_name}_{timeframe}.html",
+                mime="text/html",
+                use_container_width=True,
+            )
 
     with st.expander(T["logic"]):
         st.write(f"{T['bullish_factors']}:")
