@@ -342,23 +342,53 @@ st.markdown(
 # --- Helpers ---
 def safe_yf_download(ticker: str, period: str, interval: str, retries: int = 3) -> pd.DataFrame:
     """Download market data with retry to avoid transient yfinance concat errors."""
-    for attempt in range(retries):
-        try:
-            df = yf.download(ticker, period=period, interval=interval, progress=False, threads=False)
-            if isinstance(df.columns, pd.MultiIndex):
-                df.columns = df.columns.get_level_values(0)
-            if not df.empty:
-                return df
-        except ValueError as e:
-            if "No objects to concatenate" not in str(e):
-                # Unknown ValueError; continue retrying but do not crash app.
+    period_candidates = [period]
+    if interval == "1d":
+        period_candidates.extend([p for p in ["2y", "1y", "6mo"] if p != period])
+    elif interval in {"4h", "1h", "15m", "5m", "1m"}:
+        period_candidates.extend([p for p in ["180d", "120d", "60d", "30d", "7d"] if p != period])
+
+    for period_try in period_candidates:
+        for attempt in range(retries):
+            try:
+                df = yf.download(ticker, period=period_try, interval=interval, progress=False, threads=False)
+                if isinstance(df.columns, pd.MultiIndex):
+                    df.columns = df.columns.get_level_values(0)
+                if not df.empty:
+                    return df
+            except ValueError as e:
+                if "No objects to concatenate" not in str(e):
+                    # Unknown ValueError; continue retrying but do not crash app.
+                    pass
+            except Exception:
+                # Network/API side failures should not break UI; retry first.
                 pass
-        except Exception:
-            # Network/API side failures should not break UI; retry first.
-            pass
-        if attempt < retries - 1:
-            time.sleep(1 + attempt)
+            if attempt < retries - 1:
+                time.sleep(1 + attempt)
     return pd.DataFrame()
+
+
+def get_live_price(symbol: str) -> float | None:
+    """Best-effort live price: fast_info first, then 1m close fallback."""
+    try:
+        ticker = yf.Ticker(symbol)
+        fast_info = getattr(ticker, "fast_info", None)
+        if fast_info:
+            last_price = fast_info.get("lastPrice") or fast_info.get("last_price")
+            if last_price is not None and float(last_price) > 0:
+                return float(last_price)
+    except Exception:
+        pass
+
+    try:
+        q = safe_yf_download(symbol, period="1d", interval="1m", retries=2)
+        if not q.empty and "Close" in q.columns:
+            c = q["Close"].dropna()
+            if not c.empty:
+                return float(c.iloc[-1])
+    except Exception:
+        pass
+    return None
 
 def get_data(symbol: str, period: str, interval: str):
     data = safe_yf_download(symbol, period=period, interval=interval)
@@ -1489,7 +1519,10 @@ if not df.empty:
     bb = BollingerBands(close)
     obv = calc_obv(close, volume)
 
-    curr_price = float(close.iloc[-1])
+    candle_close_price = float(close.iloc[-1])
+    live_price = get_live_price(asset_name)
+    curr_price = live_price if live_price is not None else candle_close_price
+    price_delta_live = curr_price - candle_close_price
     curr_rsi = float(rsi.iloc[-1])
     curr_atr = float(atr.iloc[-1])
     curr_adx = safe_last(adx)
@@ -1857,7 +1890,7 @@ if not df.empty:
     )
 
     c1, c2, c3, c4, c5 = st.columns(5)
-    c1.metric(T["price"], f"${curr_price:,.2f}")
+    c1.metric(T["price"], f"${curr_price:,.2f}", f"{price_delta_live:+.2f}")
     c2.metric(T["rsi"], f"{curr_rsi:.2f}")
     c3.metric(T["atr"], f"{curr_atr:.2f}")
     c4.metric(T["dxy"], f"{curr_dxy:.2f}")
