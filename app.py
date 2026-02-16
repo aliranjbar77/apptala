@@ -1076,6 +1076,52 @@ lang_choice = st.sidebar.selectbox(TEXT["en"]["lang"], ["فارسی", "English"]
 lang = "fa" if lang_choice == "فارسی" else "en"
 T = TEXT[lang]
 
+# Light / dark theme switch
+theme_choice = st.sidebar.selectbox("Theme / تم", ["Dark", "Light"], index=0)
+is_light_theme = theme_choice == "Light"
+
+if is_light_theme:
+    st.markdown(
+        """
+        <style>
+            :root {
+                --bg: #f3f6fb;
+                --panel: #ffffff;
+                --panel-2: #f8fbff;
+                --line: #d4ddec;
+                --txt: #1c2740;
+                --muted: #5a6b8d;
+                --buy: #0f9d64;
+                --sell: #e53958;
+                --neutral: #66758f;
+            }
+            .stApp {
+                background: linear-gradient(180deg, #f3f6fb 0%, #eaf0f9 100%) !important;
+                color: var(--txt) !important;
+            }
+            [data-testid="stSidebar"] {
+                background: #eef3fb !important;
+                border-right: 1px solid #d8e1ef !important;
+            }
+            .app-card {
+                background: rgba(255, 255, 255, 0.95) !important;
+                border: 1px solid #d6e0f0 !important;
+                box-shadow: 0 2px 12px rgba(20, 34, 66, 0.08) !important;
+            }
+            [data-testid="stMetric"] {
+                background: #ffffff !important;
+                border: 1px solid #d6e0f0 !important;
+            }
+            [data-testid="stMetricLabel"] { color: #33476a !important; }
+            [data-testid="stMetricValue"] { color: #0f1e39 !important; }
+            [data-testid="stMetricDelta"] { color: #526788 !important; }
+            h1, h2, h3, h4, h5 { color: #0f1e39 !important; }
+            .app-card div, .app-card span, .app-card p { color: #2f4569 !important; }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
 
 def tr(en_text: str, fa_text: str) -> str:
     return fa_text if lang == "fa" else en_text
