@@ -355,6 +355,9 @@ def safe_yf_download(ticker: str, period: str, interval: str, retries: int = 3) 
                 df = yf.download(ticker, period=period_try, interval=interval, progress=False, threads=False)
                 if isinstance(df.columns, pd.MultiIndex):
                     df.columns = df.columns.get_level_values(0)
+                if isinstance(df, pd.DataFrame) and not df.empty:
+                    # yfinance can return duplicated OHLC column names; keep first occurrence.
+                    df = df.loc[:, ~df.columns.duplicated()].copy()
                 if not df.empty:
                     return df
             except ValueError as e:
@@ -432,10 +435,16 @@ def get_higher_timeframe(symbol: str, base_interval: str):
 def calculate_patterns(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
 
-    close_s = df["Close"].squeeze()
-    open_s = df["Open"].squeeze()
-    high_s = df["High"].squeeze()
-    low_s = df["Low"].squeeze()
+    def col_as_series(frame: pd.DataFrame, name: str) -> pd.Series:
+        col = frame[name]
+        if isinstance(col, pd.DataFrame):
+            col = col.iloc[:, 0]
+        return pd.to_numeric(col, errors="coerce")
+
+    close_s = col_as_series(df, "Close")
+    open_s = col_as_series(df, "Open")
+    high_s = col_as_series(df, "High")
+    low_s = col_as_series(df, "Low")
 
     df["Body"] = (open_s - close_s).abs()
     df["Wick_Upper"] = high_s - df[["Open", "Close"]].max(axis=1).squeeze()
