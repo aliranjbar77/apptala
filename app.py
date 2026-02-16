@@ -154,6 +154,11 @@ st.markdown(
             caret-color: #f4f8ff !important;
             font-weight: 600 !important;
         }
+        [data-testid="stSidebar"] .stNumberInput div[data-baseweb="input"] > div,
+        [data-testid="stSidebar"] .stTextInput div[data-baseweb="input"] > div {
+            background: #111a2c !important;
+            border: 1px solid rgba(255, 255, 255, 0.16) !important;
+        }
         [data-testid="stSidebar"] hr {
             border-color: rgba(255, 255, 255, 0.14) !important;
         }
@@ -1248,6 +1253,11 @@ if is_light_theme:
                 -webkit-text-fill-color: #112445 !important;
                 caret-color: #112445 !important;
                 font-weight: 600 !important;
+            }
+            [data-testid="stSidebar"] .stNumberInput div[data-baseweb="input"] > div,
+            [data-testid="stSidebar"] .stTextInput div[data-baseweb="input"] > div {
+                background: #ffffff !important;
+                border: 1px solid #d6e0f0 !important;
             }
             [data-testid="stSidebar"] [data-baseweb="select"] > div,
             [data-testid="stSidebar"] [data-baseweb="input"] > div {
