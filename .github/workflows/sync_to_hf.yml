@@ -12,6 +12,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    env:
+      HF_SPACE_REPO: aliranjbar777/golden
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -19,17 +21,35 @@ jobs:
           fetch-depth: 0
           lfs: true
 
-      - name: Push to Hugging Face Space
+      - name: Resolve Hugging Face token
         env:
-          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_TOKEN_PRIMARY: ${{ secrets.HF_TOKEN }}
+          HF_TOKEN_FALLBACK: ${{ secrets.HUGGINGFACE_TOKEN }}
         run: |
-          if [ -z "$HF_TOKEN" ]; then
-            echo "HF_TOKEN secret is missing."
+          set -euo pipefail
+          TOKEN="${HF_TOKEN_PRIMARY:-}"
+          if [ -z "$TOKEN" ]; then
+            TOKEN="${HF_TOKEN_FALLBACK:-}"
+          fi
+          if [ -z "$TOKEN" ]; then
+            echo "Missing secret. Set HF_TOKEN (recommended) or HUGGINGFACE_TOKEN."
             exit 1
           fi
+          echo "HF_TOKEN=$TOKEN" >> "$GITHUB_ENV"
+
+      - name: Validate Hugging Face token
+        run: |
+          set -euo pipefail
+          curl -fsSL https://huggingface.co/api/whoami-v2 \
+            -H "Authorization: Bearer ${HF_TOKEN}" >/dev/null
+
+      - name: Push to Hugging Face Space
+        run: |
+          set -euo pipefail
 
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git config --global user.name "github-actions[bot]"
 
-          git remote add hf "https://oauth2:${HF_TOKEN}@huggingface.co/spaces/aliranjbar777/golden"
+          git remote remove hf || true
+          git remote add hf "https://oauth2:${HF_TOKEN}@huggingface.co/spaces/${HF_SPACE_REPO}"
           git push --force hf HEAD:main
