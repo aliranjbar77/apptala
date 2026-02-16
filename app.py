@@ -127,6 +127,33 @@ st.markdown(
             background: #0d1424;
             border-right: 1px solid rgba(255, 255, 255, 0.07);
         }
+        [data-testid="stSidebar"] h3 {
+            color: #f2f7ff !important;
+            font-size: 0.95rem !important;
+            margin-top: 0.2rem !important;
+            margin-bottom: 0.4rem !important;
+        }
+        [data-testid="stSidebar"] hr {
+            border-color: rgba(255, 255, 255, 0.14) !important;
+        }
+        .focus-card {
+            background: linear-gradient(135deg, rgba(255,183,77,0.14), rgba(255,255,255,0.02));
+            border: 1px solid rgba(255,183,77,0.45);
+            border-radius: 10px;
+            padding: 8px 10px;
+            margin: 6px 0 8px 0;
+        }
+        .focus-title {
+            color: #ffd791;
+            font-weight: 700;
+            font-size: 12px;
+            margin-bottom: 4px;
+        }
+        .focus-text {
+            color: #e8f0ff;
+            font-size: 12px;
+            line-height: 1.35;
+        }
         .stButton > button {
             background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%);
             border: none;
@@ -1128,12 +1155,22 @@ def tr(en_text: str, fa_text: str) -> str:
 
 # --- Sidebar ---
 st.sidebar.title(T["settings"])
+st.sidebar.markdown(
+    f"""
+    <div class="focus-card">
+      <div class="focus-title">{tr("Priority Controls", "تنظیمات مهم")}</div>
+      <div class="focus-text">{tr("Timeframe, Risk %, Auto-refresh and Chart Mode have highest impact on signals.", "تایم‌فریم، درصد ریسک، آپدیت خودکار و حالت چارت بیشترین تاثیر را روی سیگنال دارند.")}</div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
 asset_name = st.sidebar.selectbox(
     T["select_asset"],
     ["GC=F", "SI=F"],
     format_func=lambda x: T["gold"] if x == "GC=F" else T["silver"],
 )
 timeframe = st.sidebar.selectbox(T["timeframe"], ["1m", "5m", "15m", "1h", "4h", "1d"], index=3)
+compact_sidebar = st.sidebar.checkbox(tr("Compact Sidebar", "منوی جمع‌وجور"), value=True)
 
 st.sidebar.markdown("---")
 st.sidebar.subheader(T["risk_mgmt"])
@@ -1159,25 +1196,52 @@ live_window = st.sidebar.slider(T["live_window"], 50, 400, 150, 10)
 chart_mode = st.sidebar.selectbox(T["chart_mode"], [T["chart_plotly"], T["chart_tv"]], index=1)
 
 st.sidebar.markdown("---")
-st.sidebar.subheader(T["sentiment_analysis"])
-enable_sentiment = st.sidebar.checkbox(T["enable_sentiment"], value=False)
-news_api_key = st.sidebar.text_input(T["news_api_key"], type="password", 
-                                   help="Enter your NewsAPI key to enable sentiment analysis")
+if compact_sidebar:
+    with st.sidebar.expander(T["sentiment_analysis"], expanded=False):
+        enable_sentiment = st.checkbox(T["enable_sentiment"], value=False, key="enable_sentiment_compact")
+        news_api_key = st.text_input(
+            T["news_api_key"],
+            type="password",
+            help="Enter your NewsAPI key to enable sentiment analysis",
+            key="news_api_key_compact",
+        )
+    with st.sidebar.expander(T["smart_position_sizing"], expanded=False):
+        enable_smart_sizing = st.checkbox(T["confidence_based_sizing"], value=True, key="enable_smart_sizing_compact")
+        risk_multiplier = st.slider(T["risk_multiplier"], 0.5, 2.0, 1.0, 0.1, key="risk_multiplier_compact")
+    with st.sidebar.expander(T["backtesting"], expanded=False):
+        enable_backtest = st.checkbox(T["run_backtest"], value=False, key="enable_backtest_compact")
+        backtest_period = st.selectbox(
+            T["backtest_period"],
+            ["1 Month", "3 Months", "6 Months"],
+            index=1,
+            key="backtest_period_compact",
+        )
+    with st.sidebar.expander("UI/UX", expanded=False):
+        enable_audio_alerts = st.checkbox("Enable Audio Alerts", value=True, key="enable_audio_alerts_compact")
+        enable_animations = st.checkbox("Enable Animations", value=True, key="enable_animations_compact")
+else:
+    st.sidebar.subheader(T["sentiment_analysis"])
+    enable_sentiment = st.sidebar.checkbox(T["enable_sentiment"], value=False)
+    news_api_key = st.sidebar.text_input(
+        T["news_api_key"],
+        type="password",
+        help="Enter your NewsAPI key to enable sentiment analysis",
+    )
 
-st.sidebar.markdown("---")
-st.sidebar.subheader(T["smart_position_sizing"])
-enable_smart_sizing = st.sidebar.checkbox(T["confidence_based_sizing"], value=True)
-risk_multiplier = st.sidebar.slider(T["risk_multiplier"], 0.5, 2.0, 1.0, 0.1)
+    st.sidebar.markdown("---")
+    st.sidebar.subheader(T["smart_position_sizing"])
+    enable_smart_sizing = st.sidebar.checkbox(T["confidence_based_sizing"], value=True)
+    risk_multiplier = st.sidebar.slider(T["risk_multiplier"], 0.5, 2.0, 1.0, 0.1)
 
-st.sidebar.markdown("---")
-st.sidebar.subheader(T["backtesting"])
-enable_backtest = st.sidebar.checkbox(T["run_backtest"], value=False)
-backtest_period = st.sidebar.selectbox(T["backtest_period"], ["1 Month", "3 Months", "6 Months"], index=1)
+    st.sidebar.markdown("---")
+    st.sidebar.subheader(T["backtesting"])
+    enable_backtest = st.sidebar.checkbox(T["run_backtest"], value=False)
+    backtest_period = st.sidebar.selectbox(T["backtest_period"], ["1 Month", "3 Months", "6 Months"], index=1)
 
-st.sidebar.markdown("---")
-st.sidebar.subheader("UI/UX Improvements")
-enable_audio_alerts = st.sidebar.checkbox("Enable Audio Alerts", value=True)
-enable_animations = st.sidebar.checkbox("Enable Animations", value=True)
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("UI/UX Improvements")
+    enable_audio_alerts = st.sidebar.checkbox("Enable Audio Alerts", value=True)
+    enable_animations = st.sidebar.checkbox("Enable Animations", value=True)
 
 # --- Main Logic ---
 period_map = {
