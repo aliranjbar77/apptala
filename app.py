@@ -1657,16 +1657,24 @@ if not df.empty:
     candle_close_price = float(close.iloc[-1])
     price_symbol = asset_name
     if chart_mode == T["chart_tv"]:
+        # Keep box-price source aligned with TradingView spot symbols.
         tv_price_map = {
             "GC=F": "XAUUSD=X",
             "SI=F": "XAGUSD=X",
         }
         price_symbol = tv_price_map.get(asset_name, asset_name)
-    live_price = get_live_price(price_symbol)
-    if live_price is None and price_symbol != asset_name:
-        live_price = get_live_price(asset_name)
-    curr_price = live_price if live_price is not None else candle_close_price
-    price_delta_live = (curr_price - candle_close_price) if price_symbol == asset_name else 0.0
+
+    quote_df = safe_yf_download(price_symbol, period="1d", interval="1m", retries=2)
+    if not quote_df.empty and "Close" in quote_df.columns:
+        quote_close = quote_df["Close"].dropna()
+        curr_price = float(quote_close.iloc[-1])
+        price_delta_live = float(quote_close.iloc[-1] - quote_close.iloc[-2]) if len(quote_close) >= 2 else 0.0
+    else:
+        live_price = get_live_price(price_symbol)
+        if live_price is None and price_symbol != asset_name:
+            live_price = get_live_price(asset_name)
+        curr_price = live_price if live_price is not None else candle_close_price
+        price_delta_live = curr_price - candle_close_price
     curr_rsi = float(rsi.iloc[-1])
     curr_atr = float(atr.iloc[-1])
     curr_adx = safe_last(adx)
@@ -2414,8 +2422,8 @@ if not df.empty:
     chart_snapshot_html = None
     if chart_mode == T["chart_tv"]:
         tv_symbol_map = {
-            "GC=F": "OANDA:XAUUSD",
-            "SI=F": "OANDA:XAGUSD",
+            "GC=F": "FX_IDC:XAUUSD",
+            "SI=F": "FX_IDC:XAGUSD",
         }
         tv_interval_map = {
             "1m": "1",
