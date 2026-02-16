@@ -1655,9 +1655,18 @@ if not df.empty:
     obv = calc_obv(close, volume)
 
     candle_close_price = float(close.iloc[-1])
-    live_price = get_live_price(asset_name)
+    price_symbol = asset_name
+    if chart_mode == T["chart_tv"]:
+        tv_price_map = {
+            "GC=F": "XAUUSD=X",
+            "SI=F": "XAGUSD=X",
+        }
+        price_symbol = tv_price_map.get(asset_name, asset_name)
+    live_price = get_live_price(price_symbol)
+    if live_price is None and price_symbol != asset_name:
+        live_price = get_live_price(asset_name)
     curr_price = live_price if live_price is not None else candle_close_price
-    price_delta_live = curr_price - candle_close_price
+    price_delta_live = (curr_price - candle_close_price) if price_symbol == asset_name else 0.0
     curr_rsi = float(rsi.iloc[-1])
     curr_atr = float(atr.iloc[-1])
     curr_adx = safe_last(adx)
