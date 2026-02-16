@@ -13,6 +13,7 @@ import json
 from datetime import datetime, timedelta
 import re
 import time
+from pathlib import Path
 
 # --- Audio Alert Function ---
 def play_alert_sound(alert_type: str = "signal"):
@@ -466,6 +467,66 @@ def pct_change_n(series: pd.Series, n: int) -> float:
         return 0.0
     return (curr / prev - 1.0) * 100.0
 
+
+JOURNAL_PATH = Path("signal_journal.csv")
+
+
+def detect_market_regime(curr_adx: float, curr_atr: float, atr_baseline: float) -> dict:
+    atr_ratio = curr_atr / max(atr_baseline, 1e-9)
+    if curr_adx >= 25 and atr_ratio <= 1.5:
+        return {"name": "TREND", "score_mult": 1.12, "conf_bonus": 4.0}
+    if atr_ratio > 1.5:
+        return {"name": "HIGH_VOL", "score_mult": 0.88, "conf_bonus": -5.0}
+    return {"name": "RANGE", "score_mult": 0.94, "conf_bonus": -2.0}
+
+
+def compute_signal_probability(
+    bias_score: float,
+    confidence: float,
+    method_net: float,
+    method_total_weight: float,
+    regime_name: str,
+) -> dict:
+    agreement = abs(method_net) / max(method_total_weight, 1e-9)
+    base_prob = 48.0 + abs(bias_score) * 0.28 + confidence * 0.22 + agreement * 8.0
+    if regime_name == "TREND":
+        base_prob += 3.0
+    elif regime_name == "HIGH_VOL":
+        base_prob -= 4.0
+    win_prob = max(35.0, min(92.0, base_prob))
+    loss_prob = 100.0 - win_prob
+    return {"win_prob": win_prob, "loss_prob": loss_prob, "agreement": agreement * 100.0}
+
+
+def load_signal_journal(path: Path = JOURNAL_PATH) -> pd.DataFrame:
+    if not path.exists():
+        return pd.DataFrame()
+    try:
+        return pd.read_csv(path)
+    except Exception:
+        return pd.DataFrame()
+
+
+def append_signal_journal(entry: dict, path: Path = JOURNAL_PATH) -> None:
+    try:
+        df = load_signal_journal(path)
+        new_row = pd.DataFrame([entry])
+        if not df.empty:
+            same = (
+                (df["asset"] == entry["asset"])
+                & (df["timeframe"] == entry["timeframe"])
+                & (df["signal"] == entry["signal"])
+            )
+            if same.any():
+                last_ts = pd.to_datetime(df.loc[same, "timestamp"], errors="coerce").max()
+                if pd.notna(last_ts):
+                    if (pd.Timestamp.utcnow() - last_ts).total_seconds() < 300:
+                        return
+        out = pd.concat([df, new_row], ignore_index=True) if not df.empty else new_row
+        out.tail(5000).to_csv(path, index=False)
+    except Exception:
+        pass
+
 # --- Sentiment Analysis Functions ---
 def get_gold_news(api_key: str, days_back: int = 7) -> list:
     """Get gold-related news from NewsAPI"""
@@ -893,12 +954,42 @@ def run_backtest(df: pd.DataFrame, timeframe: str, initial_balance: float = 1000
         'win_rate': win_rate,
         'avg_win': avg_win,
         'avg_loss': avg_loss,
+        'expectancy': (win_rate / 100.0) * avg_win + (1 - win_rate / 100.0) * avg_loss,
         'total_return': total_return,
         'max_drawdown': max_drawdown,
         'sharpe_ratio': sharpe_ratio,
         'profit_factor': profit_factor,
         'final_balance': balance,
         'trades': completed_trades[:10]  # Return last 10 trades for display
+    }
+
+
+def run_walkforward_backtest(df: pd.DataFrame, timeframe: str, splits: int = 3, train_ratio: float = 0.7) -> dict:
+    if df.empty or len(df) < 350:
+        return {}
+    fold_size = len(df) // splits
+    fold_results = []
+    for i in range(splits):
+        start = i * fold_size
+        end = len(df) if i == splits - 1 else (i + 1) * fold_size
+        fold_df = df.iloc[start:end].copy()
+        if len(fold_df) < 250:
+            continue
+        split_at = int(len(fold_df) * train_ratio)
+        oos_df = fold_df.iloc[split_at:]
+        if len(oos_df) < 120:
+            continue
+        res = run_backtest(oos_df, timeframe)
+        fold_results.append(res)
+    if not fold_results:
+        return {}
+    return {
+        "folds": len(fold_results),
+        "oos_win_rate": float(np.mean([r.get("win_rate", 0.0) for r in fold_results])),
+        "oos_return": float(np.mean([r.get("total_return", 0.0) for r in fold_results])),
+        "oos_drawdown": float(np.mean([r.get("max_drawdown", 0.0) for r in fold_results])),
+        "oos_profit_factor": float(np.mean([r.get("profit_factor", 0.0) for r in fold_results])),
+        "oos_expectancy": float(np.mean([r.get("expectancy", 0.0) for r in fold_results])),
     }
 
 # --- Advanced Correlation Analysis Functions ---
@@ -1392,6 +1483,8 @@ acc_balance = st.sidebar.number_input(T["balance"], value=1000, key="balance_inp
 risk_pct = st.sidebar.slider(T["risk_pct"], 0.5, 5.0, 2.0, key="risk_pct_input")
 atr_mult = st.sidebar.slider(T["atr_mult"], 1.0, 4.0, 2.0, 0.5, key="atr_mult_input")
 rr_ratio = st.sidebar.slider(T["rr"], 1.0, 5.0, 2.0, 0.5, key="rr_ratio_input")
+max_dd_guard = st.sidebar.slider(tr("Max Drawdown Guard (%)", "حداکثر افت مجاز (%)"), 2.0, 30.0, 12.0, 0.5, key="max_dd_guard")
+max_loss_streak_guard = st.sidebar.slider(tr("Max Loss Streak", "حداکثر زنجیره باخت"), 2, 8, 4, key="max_loss_streak_guard")
 
 st.sidebar.markdown("---")
 st.sidebar.subheader(T["contract_size"])
@@ -1441,6 +1534,8 @@ if qa1.button(tr("Reset Risk", "ریست ریسک"), use_container_width=True):
     st.session_state["risk_pct_input"] = 2.0
     st.session_state["atr_mult_input"] = 2.0
     st.session_state["rr_ratio_input"] = 2.0
+    st.session_state["max_dd_guard"] = 12.0
+    st.session_state["max_loss_streak_guard"] = 4
     st.session_state["risk_multiplier_compact"] = 1.0
     st.session_state["enable_smart_sizing_compact"] = True
     st.rerun()
@@ -1484,6 +1579,7 @@ economic_events = get_economic_calendar()
 
 # --- Backtesting Data ---
 backtest_data = None
+walkforward_data = None
 if enable_backtest:
     period_map_backtest = {
         "1 Month": "1mo",
@@ -1495,6 +1591,7 @@ if enable_backtest:
         backtest_df, _ = get_data(asset_name, period_map_backtest.get(backtest_period, "3mo"), timeframe)
         if not backtest_df.empty:
             backtest_data = run_backtest(backtest_df, timeframe)
+            walkforward_data = run_walkforward_backtest(backtest_df, timeframe, splits=3, train_ratio=0.7)
 
 # --- Advanced Correlation Data ---
 correlation_data = calculate_advanced_correlations(asset_name)
@@ -1674,53 +1771,6 @@ if not df.empty:
             bearish_reasons.append(tr(f"Market sentiment bearish ({sentiment_data['confidence']:.1f})", f"سنتیمنت بازار نزولی ({sentiment_data['confidence']:.1f})"))
 
     net_score = long_pts - short_pts
-    bias_score = max(-100.0, min(100.0, net_score))
-    confidence = min(99.0, abs(bias_score) * 0.85 + (5 if curr_adx >= 25 else 0))
-
-    signal = "NEUTRAL"
-    if bias_score >= 35:
-        signal = "STRONG BUY"
-    elif bias_score >= 12:
-        signal = "BUY"
-    elif bias_score <= -35:
-        signal = "STRONG SELL"
-    elif bias_score <= -12:
-        signal = "SELL"
-
-    # --- Risk Management ---
-    is_long = signal in ["BUY", "STRONG BUY"]
-    sl = curr_price - (atr_mult * curr_atr) if is_long else curr_price + (atr_mult * curr_atr)
-    tp = curr_price + (rr_ratio * atr_mult * curr_atr) if is_long else curr_price - (rr_ratio * atr_mult * curr_atr)
-    tp2 = curr_price + ((rr_ratio + 1.0) * atr_mult * curr_atr) if is_long else curr_price - ((rr_ratio + 1.0) * atr_mult * curr_atr)
-    entry_low = curr_price - (0.25 * curr_atr)
-    entry_high = curr_price + (0.25 * curr_atr)
-
-    risk_amt = acc_balance * (risk_pct / 100.0)
-    risk_per_unit = abs(curr_price - sl) * contract_size
-    lot_size = (risk_amt / risk_per_unit) if risk_per_unit != 0 else 0
-
-    # --- Smart Position Sizing ---
-    smart_sizing_data = None
-    if enable_smart_sizing:
-        atr_baseline = safe_last(atr.rolling(50).mean(), default=curr_atr)
-        smart_sizing_data = calculate_smart_position_size(
-            base_lot_size=lot_size,
-            confidence=confidence,
-            atr=curr_atr,
-            atr_baseline=atr_baseline,
-            sentiment_data=sentiment_data,
-            risk_multiplier=risk_multiplier
-        )
-        # Use the adjusted lot size
-        lot_size = smart_sizing_data['adjusted_lot_size']
-        with st.sidebar.expander(tr("Smart Sizing Output", "خروجی پوزیشن‌سایزینگ هوشمند"), expanded=False):
-            st.write(f"{T['base_position']}: {smart_sizing_data['base_lot_size']:.3f}")
-            st.write(f"{T['adjusted_position']}: {smart_sizing_data['adjusted_lot_size']:.3f}")
-            st.write(f"{T['sizing_factor']}: {smart_sizing_data['sizing_factor']:.2f}x")
-            st.write(f"{T['volatility_adjustment']}: {smart_sizing_data['volatility_factor']:.2f}x")
-            if sentiment_data:
-                st.write(f"{T['sentiment_adjustment']}: {smart_sizing_data['sentiment_factor']:.2f}x")
-            st.write(f"{T['risk_multiplier']}: {smart_sizing_data['risk_multiplier']:.2f}x")
 
     # --- Per-method signal box (technical + fundamental) ---
     prev_high_20 = safe_last(high.shift(1).rolling(20).max(), default=curr_price)
@@ -1815,6 +1865,138 @@ if not df.empty:
         ("fundamental", T["method_fundamental"], fund_sig, fund_reason),
     ]
 
+    # Blend method-signals into primary score with controlled weight.
+    method_weight_map = {
+        "price_action": 10.0,
+        "fib": 8.0,
+        "rsi": 6.0,
+        "macd": 6.0,
+        "bollinger": 5.0,
+        "fundamental": 9.0,
+    }
+    method_long_pts = 0.0
+    method_short_pts = 0.0
+    for method_code, _, method_sig, _ in method_signals:
+        w = method_weight_map.get(method_code, 0.0)
+        if method_sig == "BUY":
+            method_long_pts += w
+        elif method_sig == "SELL":
+            method_short_pts += w
+
+    method_net = method_long_pts - method_short_pts
+    method_total_weight = sum(method_weight_map.values())
+    method_strength_pct = (abs(method_net) / method_total_weight * 100.0) if method_total_weight > 0 else 0.0
+
+    atr_baseline_core = safe_last(atr.rolling(50).mean(), default=curr_atr)
+    regime_data = detect_market_regime(curr_adx, curr_atr, atr_baseline_core)
+
+    blend_ratio = 0.28
+    blended_score = (1.0 - blend_ratio) * net_score + blend_ratio * method_net
+    blended_score *= regime_data["score_mult"]
+    bias_score = max(-100.0, min(100.0, blended_score))
+
+    confidence_base = abs(bias_score) * 0.85 + (5 if curr_adx >= 25 else 0)
+    method_conf_boost = min(8.0, method_strength_pct * 0.08)
+    confidence = min(99.0, max(1.0, confidence_base + method_conf_boost + regime_data["conf_bonus"]))
+
+    if method_net > 0:
+        bullish_reasons.append(tr(
+            f"Method consensus adds +{method_net:.1f} points",
+            f"اجماع روش‌های تحلیلی +{method_net:.1f} امتیاز اضافه کرد"
+        ))
+    elif method_net < 0:
+        bearish_reasons.append(tr(
+            f"Method consensus adds {method_net:.1f} points",
+            f"اجماع روش‌های تحلیلی {method_net:.1f} امتیاز اضافه کرد"
+        ))
+    bullish_reasons.append(tr(f"Regime: {regime_data['name']}", f"رژیم بازار: {regime_data['name']}"))
+
+    signal_prob = compute_signal_probability(
+        bias_score=bias_score,
+        confidence=confidence,
+        method_net=method_net,
+        method_total_weight=method_total_weight,
+        regime_name=regime_data["name"],
+    )
+
+    signal = "NEUTRAL"
+    if bias_score >= 35:
+        signal = "STRONG BUY"
+    elif bias_score >= 12:
+        signal = "BUY"
+    elif bias_score <= -35:
+        signal = "STRONG SELL"
+    elif bias_score <= -12:
+        signal = "SELL"
+
+    # Risk-guard layer based on backtest health
+    risk_guard_active = False
+    risk_guard_reason = ""
+    if backtest_data:
+        recent_trades = backtest_data.get("trades", [])
+        loss_streak = 0
+        for trd in reversed(recent_trades):
+            pnl = trd.get("pnl")
+            if pnl is None:
+                continue
+            if pnl < 0:
+                loss_streak += 1
+            else:
+                break
+        if loss_streak >= max_loss_streak_guard:
+            risk_guard_active = True
+            risk_guard_reason = tr(
+                f"Risk guard: loss streak {loss_streak}",
+                f"محافظ ریسک: زنجیره باخت {loss_streak}"
+            )
+        if backtest_data.get("max_drawdown", 0.0) >= max_dd_guard:
+            risk_guard_active = True
+            risk_guard_reason = tr(
+                f"Risk guard: drawdown {backtest_data.get('max_drawdown', 0.0):.1f}%",
+                f"محافظ ریسک: افت سرمایه {backtest_data.get('max_drawdown', 0.0):.1f}%"
+            )
+    if risk_guard_active:
+        signal = "NEUTRAL"
+        confidence = min(confidence, 35.0)
+        bearish_reasons.append(risk_guard_reason)
+
+    # --- Risk Management ---
+    is_long = signal in ["BUY", "STRONG BUY"]
+    sl = curr_price - (atr_mult * curr_atr) if is_long else curr_price + (atr_mult * curr_atr)
+    tp = curr_price + (rr_ratio * atr_mult * curr_atr) if is_long else curr_price - (rr_ratio * atr_mult * curr_atr)
+    tp2 = curr_price + ((rr_ratio + 1.0) * atr_mult * curr_atr) if is_long else curr_price - ((rr_ratio + 1.0) * atr_mult * curr_atr)
+    entry_low = curr_price - (0.25 * curr_atr)
+    entry_high = curr_price + (0.25 * curr_atr)
+
+    risk_amt = acc_balance * (risk_pct / 100.0)
+    risk_per_unit = abs(curr_price - sl) * contract_size
+    lot_size = (risk_amt / risk_per_unit) if risk_per_unit != 0 else 0
+
+    # --- Smart Position Sizing ---
+    smart_sizing_data = None
+    if enable_smart_sizing:
+        atr_baseline = safe_last(atr.rolling(50).mean(), default=curr_atr)
+        smart_sizing_data = calculate_smart_position_size(
+            base_lot_size=lot_size,
+            confidence=confidence,
+            atr=curr_atr,
+            atr_baseline=atr_baseline,
+            sentiment_data=sentiment_data,
+            risk_multiplier=risk_multiplier
+        )
+        lot_size = smart_sizing_data['adjusted_lot_size']
+        with st.sidebar.expander(tr("Smart Sizing Output", "خروجی پوزیشن‌سایزینگ هوشمند"), expanded=False):
+            st.write(f"{T['base_position']}: {smart_sizing_data['base_lot_size']:.3f}")
+            st.write(f"{T['adjusted_position']}: {smart_sizing_data['adjusted_lot_size']:.3f}")
+            st.write(f"{T['sizing_factor']}: {smart_sizing_data['sizing_factor']:.2f}x")
+            st.write(f"{T['volatility_adjustment']}: {smart_sizing_data['volatility_factor']:.2f}x")
+            if sentiment_data:
+                st.write(f"{T['sentiment_adjustment']}: {smart_sizing_data['sentiment_factor']:.2f}x")
+            st.write(f"{T['risk_multiplier']}: {smart_sizing_data['risk_multiplier']:.2f}x")
+
+    expected_move_pct = (curr_atr / max(curr_price, 1e-9)) * 100.0 * (1.4 if signal.startswith("STRONG") else 1.0)
+    expected_drawdown_pct = (abs(curr_price - sl) / max(curr_price, 1e-9)) * 100.0
+
     # --- UI Layout ---
     st.title(T["title"])
 
@@ -1830,6 +2012,20 @@ if not df.empty:
     else:
         signal_display = T["sig_neutral"]
 
+    append_signal_journal(
+        {
+            "timestamp": pd.Timestamp.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
+            "asset": asset_name,
+            "timeframe": timeframe,
+            "signal": signal,
+            "bias_score": round(float(bias_score), 3),
+            "confidence": round(float(confidence), 3),
+            "price": round(float(curr_price), 4),
+            "win_prob": round(float(signal_prob["win_prob"]), 3),
+            "regime": regime_data["name"],
+        }
+    )
+
     badge_class = "badge-neutral"
     if signal in ["BUY", "STRONG BUY"]:
         badge_class = "badge-buy"
@@ -1842,11 +2038,15 @@ if not df.empty:
             <span class="k">{tr("Price", "قیمت")}:</span><span class="v"><strong>${curr_price:,.2f}</strong></span>
             <span class="k">{tr("Signal", "سیگنال")}:</span><span class="v"><span class="{badge_class}">{signal_display}</span></span>
             <span class="k">{T["confidence"]}:</span><span class="v"><strong>{confidence:.0f}%</strong></span>
+            <span class="k">{tr("Win Prob", "احتمال موفقیت")}:</span><span class="v"><strong>{signal_prob['win_prob']:.1f}%</strong></span>
+            <span class="k">{tr("Regime", "رژیم")}:</span><span class="v"><strong>{regime_data['name']}</strong></span>
             <span class="k">{T["last_update"]}:</span><span class="v">{pd.Timestamp.utcnow().strftime('%H:%M:%S')} UTC</span>
         </div>
         """,
         unsafe_allow_html=True,
     )
+    if risk_guard_active:
+        st.warning(risk_guard_reason)
 
     st.markdown(
         f"""
@@ -1887,6 +2087,12 @@ if not df.empty:
         </div>
         """,
         unsafe_allow_html=True,
+    )
+    st.caption(
+        tr(
+            f"Win prob: {signal_prob['win_prob']:.1f}% | Loss prob: {signal_prob['loss_prob']:.1f}% | Method agreement: {signal_prob['agreement']:.1f}% | Expected move: {expected_move_pct:.2f}% | Expected DD: {expected_drawdown_pct:.2f}%",
+            f"احتمال موفقیت: {signal_prob['win_prob']:.1f}% | احتمال شکست: {signal_prob['loss_prob']:.1f}% | اجماع روش‌ها: {signal_prob['agreement']:.1f}% | حرکت موردانتظار: {expected_move_pct:.2f}% | افت موردانتظار: {expected_drawdown_pct:.2f}%"
+        )
     )
 
     c1, c2, c3, c4, c5 = st.columns(5)
@@ -2036,6 +2242,15 @@ if not df.empty:
                 st.metric(T['avg_win'], f"{backtest_data['avg_win']:.2f}%")
             with col7:
                 st.metric(T['avg_loss'], f"{backtest_data['avg_loss']:.2f}%")
+            st.metric(tr("Expectancy", "امید ریاضی"), f"{backtest_data.get('expectancy', 0.0):.2f}%")
+
+            if walkforward_data:
+                st.markdown(f"<div class='app-card'><h5 style='margin:0;'>{tr('Walk-Forward (OOS)', 'ارزیابی واک‌فوروارد (خارج از نمونه)')}</h5></div>", unsafe_allow_html=True)
+                wf1, wf2, wf3, wf4 = st.columns(4)
+                wf1.metric(tr("Folds", "فولدها"), int(walkforward_data.get("folds", 0)))
+                wf2.metric(tr("OOS WinRate", "وین‌ریت OOS"), f"{walkforward_data.get('oos_win_rate', 0.0):.1f}%")
+                wf3.metric(tr("OOS Return", "بازده OOS"), f"{walkforward_data.get('oos_return', 0.0):.2f}%")
+                wf4.metric(tr("OOS DD", "افت OOS"), f"{walkforward_data.get('oos_drawdown', 0.0):.2f}%")
             
             # Recent trades
             if backtest_data['trades']:
@@ -2062,12 +2277,12 @@ if not df.empty:
             # Display detailed correlation table
             correlation_rows = []
             for asset_key, data in correlation_data.items():
-                asset_name = T[asset_key]
+                corr_asset_name = T[asset_key]
                 trend_text = T[data['trend']]
                 trend_color = "#21c77a" if data['trend'] == 'strengthening' else "#ff5a7a" if data['trend'] == 'weakening' else "#8a96ad"
                 
                 correlation_rows.append({
-                    T['correlation_with']: asset_name,
+                    T['correlation_with']: corr_asset_name,
                     T['correlation_30d']: f"{data['corr_30d']:.3f}",
                     T['correlation_90d']: f"{data['corr_90d']:.3f}",
                     T['correlation_180d']: f"{data['corr_180d']:.3f}",
@@ -2076,6 +2291,24 @@ if not df.empty:
             
             correlation_df = pd.DataFrame(correlation_rows)
             st.markdown(correlation_df.to_html(escape=False, index=False), unsafe_allow_html=True)
+
+    journal_df = load_signal_journal()
+    if not journal_df.empty:
+        jf = journal_df[(journal_df["asset"] == asset_name) & (journal_df["timeframe"] == timeframe)].copy()
+        if not jf.empty:
+            with st.expander(tr("Signal Performance Journal", "ژورنال عملکرد سیگنال"), expanded=False):
+                jf["timestamp"] = pd.to_datetime(jf["timestamp"], errors="coerce")
+                jf = jf.sort_values("timestamp")
+                st.write(tr("Recent signal logs", "لاگ اخیر سیگنال‌ها"))
+                st.dataframe(jf.tail(20), use_container_width=True, hide_index=True)
+                if len(jf) >= 2:
+                    signal_shift_rate = (jf["signal"].astype(str) != jf["signal"].astype(str).shift(1)).mean() * 100.0
+                    avg_conf = float(jf["confidence"].astype(float).mean())
+                    avg_prob = float(jf["win_prob"].astype(float).mean())
+                    j1, j2, j3 = st.columns(3)
+                    j1.metric(tr("Signal Shift Rate", "نرخ تغییر سیگنال"), f"{signal_shift_rate:.1f}%")
+                    j2.metric(tr("Avg Confidence", "میانگین اعتماد"), f"{avg_conf:.1f}%")
+                    j3.metric(tr("Avg Win Prob", "میانگین احتمال موفقیت"), f"{avg_prob:.1f}%")
 
     sig_text_map = {"BUY": T["sig_buy"], "SELL": T["sig_sell"], "NEUTRAL": T["sig_neutral"]}
     method_rows = []
