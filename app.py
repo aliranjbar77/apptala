@@ -1678,8 +1678,20 @@ if is_light_theme:
     )
 
 
+def _fa_text_is_broken(txt: str) -> bool:
+    if not txt:
+        return True
+    if "?" in txt:
+        return True
+    # Mojibake-like patterns from broken encoding (very common in this file history).
+    noisy = sum(txt.count(ch) for ch in ["?", "?", "?", "?", "?"])
+    return noisy >= max(3, int(len(txt) * 0.2))
+
+
 def tr(en_text: str, fa_text: str) -> str:
-    return fa_text if lang == "fa" else en_text
+    if lang != "fa":
+        return en_text
+    return en_text if _fa_text_is_broken(fa_text) else fa_text
 
 # --- Sidebar ---
 st.sidebar.title(T["settings"])
@@ -1723,7 +1735,7 @@ st.sidebar.subheader(T["live_update"])
 auto_refresh = st.sidebar.checkbox(T["auto_refresh"], value=True)
 refresh_sec = st.sidebar.slider(T["refresh_interval"], 2, 120, 8, 1)
 live_window = st.sidebar.slider(T["live_window"], 50, 400, 150, 10)
-chart_mode = st.sidebar.selectbox(T["chart_mode"], [T["chart_plotly"], T["chart_tv"]], index=1)
+chart_mode = st.sidebar.selectbox(T["chart_mode"], [T["chart_plotly"], T["chart_tv"]], index=0)
 
 st.sidebar.markdown("---")
 with st.sidebar.expander(T["sentiment_analysis"], expanded=False):
@@ -1766,10 +1778,10 @@ with st.sidebar.expander(tr("AI Confirmation", "AI Confirmation"), expanded=Fals
 with st.sidebar.expander(tr("Signal Engine", "Signal Engine"), expanded=False):
     enforce_mtf_alignment = st.checkbox(tr("Strict higher-TF alignment", "هم‌جهتی سخت‌گیرانه تایم بالاتر"), value=True, key="enforce_mtf_alignment")
     enable_news_filter = st.checkbox(tr("High-impact news filter", "فیلتر خبرهای مهم"), value=True, key="enable_news_filter")
-    news_filter_minutes = st.slider(tr("News lock window (min)", "بازه قفل خبر (دقیقه)"), 15, 120, 45, 5, key="news_filter_minutes")
+    news_filter_minutes = st.slider(tr("News lock window (min)", "???????? ?????? ?????? (??????????)"), 10, 90, 25, 5, key="news_filter_minutes")
     enable_quality_gate = st.checkbox(tr("Quality gate", "گیت کیفیت"), value=True, key="enable_quality_gate")
-    min_adx_gate = st.slider(tr("Min ADX", "حداقل ADX"), 10, 35, 18, 1, key="min_adx_gate")
-    min_agreement_gate = st.slider(tr("Min method agreement (%)", "حداقل اجماع روش‌ها (%)"), 40, 100, 60, 5, key="min_agreement_gate")
+    min_adx_gate = st.slider(tr("Min ADX", "?????????? ADX"), 8, 35, 14, 1, key="min_adx_gate")
+    min_agreement_gate = st.slider(tr("Min method agreement (%)", "?????????? ?????????? ????????????? (%)"), 35, 100, 50, 5, key="min_agreement_gate")
     st.caption(tr(
         "Active gates: Higher-TF alignment + News lock + Quality gate.",
         "Active gates: Higher-TF alignment + News lock + Quality gate."
@@ -1850,10 +1862,9 @@ if not df.empty:
 
     close = df["Close"].squeeze()
     candle_close_price = float(close.iloc[-1])
-    # Keep price source on same instrument as selected asset.
+    # Keep price source on Yahoo symbols with stable live data.
     price_symbol = asset_name
-
-    quote_candidates = [asset_name] if chart_mode == T["chart_tv"] else ([price_symbol] if price_symbol == asset_name else [price_symbol, asset_name])
+    quote_candidates = [price_symbol]
     quote_price, quote_delta, quote_source = get_fresh_quote(quote_candidates)
     if quote_price is not None:
         curr_price = float(quote_price)
@@ -2208,26 +2219,33 @@ if not df.empty:
 
     # AI branch is informational only (no impact on main signal).
 
-    # Strict higher-timeframe alignment gate.
-    if enforce_mtf_alignment and signal != "NEUTRAL":
-        if ("BUY" in signal and ht_trend == "DOWN") or ("SELL" in signal and ht_trend == "UP"):
-            signal = "NEUTRAL"
-            bearish_reasons.append(tr("Higher-TF alignment blocked signal", "هم‌جهتی تایم بالاتر سیگنال را مسدود کرد"))
+    gate_soft_fails = 0
 
-    # High-impact news lock window gate.
+    # Softer higher-timeframe alignment gate.
+    if enforce_mtf_alignment and signal != "NEUTRAL" and ht_trend in {"UP", "DOWN"}:
+        if ("BUY" in signal and ht_trend == "DOWN") or ("SELL" in signal and ht_trend == "UP"):
+            gate_soft_fails += 1
+            bearish_reasons.append(tr("Higher-TF conflict (soft gate)", "Higher-TF conflict (soft gate)"))
+
+    # Softer high-impact news gate.
     if enable_news_filter and signal != "NEUTRAL":
         news_block, news_tag = in_high_impact_news_window(economic_events, window_minutes=news_filter_minutes)
         if news_block:
-            signal = "NEUTRAL"
-            bearish_reasons.append(tr(f"News lock active: {news_tag}", f"قفل خبری فعال: {news_tag}"))
+            gate_soft_fails += 1
+            bearish_reasons.append(tr(f"News lock active (soft): {news_tag}", f"News lock active (soft): {news_tag}"))
 
-    # Quality gate.
+    # Softer quality gate.
     atr_pct = (curr_atr / max(curr_price, 1e-9)) * 100.0
     if enable_quality_gate and signal != "NEUTRAL":
-        quality_ok = (curr_adx >= float(min_adx_gate)) and (agreement_pct >= float(min_agreement_gate)) and (atr_pct >= 0.05)
+        quality_ok = (curr_adx >= float(min_adx_gate)) and (agreement_pct >= float(min_agreement_gate)) and (atr_pct >= 0.03)
         if not quality_ok:
-            signal = "NEUTRAL"
-            bearish_reasons.append(tr("Quality gate failed", "گیت کیفیت رد شد"))
+            gate_soft_fails += 1
+            bearish_reasons.append(tr("Quality gate soft-fail", "Quality gate soft-fail"))
+
+    # Neutralize only if at least two gates fail together.
+    if signal != "NEUTRAL" and gate_soft_fails >= 2:
+        signal = "NEUTRAL"
+        bearish_reasons.append(tr("Multiple gates blocked signal", "Multiple gates blocked signal"))
 
     # Confidence / bias from vote-consensus logic.
     vote_edge = buy_votes - sell_votes
@@ -2740,8 +2758,8 @@ if not df.empty:
     if chart_mode == T["chart_tv"]:
         # Match TradingView chart with selected futures instrument.
         tv_symbol_map = {
-            "GC=F": "TVC:GOLD",
-            "SI=F": "TVC:SILVER",
+            "GC=F": "OANDA:XAUUSD",
+            "SI=F": "OANDA:XAGUSD",
         }
         tv_interval_map = {
             "1m": "1",
@@ -2751,7 +2769,7 @@ if not df.empty:
             "4h": "240",
             "1d": "D",
         }
-        tv_symbol = tv_symbol_map.get(asset_name, "TVC:GOLD")
+        tv_symbol = tv_symbol_map.get(asset_name, "OANDA:XAUUSD")
         tv_interval = tv_interval_map.get(timeframe, "60")
         tv_theme = "dark"
         tv_locale = "fa" if lang == "fa" else "en"
