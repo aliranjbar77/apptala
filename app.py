@@ -2060,58 +2060,53 @@ if not df.empty:
     prev_low_20 = safe_last(low.shift(1).rolling(20).min(), default=curr_price)
 
     pa_sig = "NEUTRAL"
-    pa_reason = tr("Range/no clear breakout", "محدوده/سیگنال واضحی وجود ندارد")
+    pa_reason = tr("[Source: price candles] Range/no clear breakout", "[Source: price candles] Range/no clear breakout")
     if curr_price > prev_high_20 and curr_price > safe_last(ema50):
         pa_sig = "BUY"
-        pa_reason = tr("Breakout above previous 20-bar high", "شکست مقاومت 20 کندل قبلی")
+        pa_reason = tr("[Source: price candles] Breakout above previous 20-bar high", "[Source: price candles] Breakout above previous 20-bar high")
     elif curr_price < prev_low_20 and curr_price < safe_last(ema50):
         pa_sig = "SELL"
-        pa_reason = tr("Breakdown below previous 20-bar low", "شکست حمایت 20 کندل قبلی")
-
-    fib_sig = "NEUTRAL"
-    fib_reason = tr("Price away from key retracement zone", "قیمت در محدوده بازگشت فیبوناچی نیست")
-    swing_high = safe_last(high.rolling(120).max(), default=curr_price)
-    swing_low = safe_last(low.rolling(120).min(), default=curr_price)
-    fib_range = swing_high - swing_low
-    if fib_range > 0:
-        fib_50 = swing_high - fib_range * 0.5
-        fib_618 = swing_high - fib_range * 0.618
-        if safe_last(ema50) > safe_last(ema200) and fib_618 <= curr_price <= fib_50:
-            fib_sig = "BUY"
-            fib_reason = tr("Bull trend pullback in 0.5-0.618 zone", "پولبک روند صعودی در محدوده 0.5-0.618")
-        elif safe_last(ema50) < safe_last(ema200) and fib_50 <= curr_price <= fib_618:
-            fib_sig = "SELL"
-            fib_reason = tr("Bear trend pullback in 0.5-0.618 zone", "پولبک روند نزولی در محدوده 0.5-0.618")
-
-    rsi_sig = "NEUTRAL"
-    rsi_reason = tr("RSI between 45 and 55", "RSI بین 45 و 55")
-    if curr_rsi > 55:
-        rsi_sig = "BUY"
-        rsi_reason = tr("RSI bullish regime", "RSI در محدوده صعودی")
-    elif curr_rsi < 45:
-        rsi_sig = "SELL"
-        rsi_reason = tr("RSI bearish regime", "RSI در محدوده نزولی")
+        pa_reason = tr("[Source: price candles] Breakdown below previous 20-bar low", "[Source: price candles] Breakdown below previous 20-bar low")
+    elif curr_price > safe_last(ema20) and safe_last(ema20) > safe_last(ema50):
+        pa_sig = "BUY"
+        pa_reason = tr("[Source: price candles] Trend continuation above EMA20/EMA50", "[Source: price candles] Trend continuation above EMA20/EMA50")
+    elif curr_price < safe_last(ema20) and safe_last(ema20) < safe_last(ema50):
+        pa_sig = "SELL"
+        pa_reason = tr("[Source: price candles] Trend continuation below EMA20/EMA50", "[Source: price candles] Trend continuation below EMA20/EMA50")
 
     macd_sig = "NEUTRAL"
-    macd_reason = tr("No fresh MACD impulse", "سیگنال جدیدی از MACD وجود ندارد")
+    macd_reason = tr("[Source: MACD] Flat momentum", "[Source: MACD] Flat momentum")
     if len(macd_hist.dropna()) > 2:
         if macd_hist.iloc[-1] > 0 and macd_hist.iloc[-2] <= 0:
             macd_sig = "BUY"
-            macd_reason = tr("MACD histogram crossed above zero", "هیستوگرام MACD بالای صفر عبور کرد")
+            macd_reason = tr("[Source: MACD] Histogram crossed above zero", "[Source: MACD] Histogram crossed above zero")
         elif macd_hist.iloc[-1] < 0 and macd_hist.iloc[-2] >= 0:
             macd_sig = "SELL"
-            macd_reason = tr("MACD histogram crossed below zero", "هیستوگرام MACD زیر صفر عبور کرد")
+            macd_reason = tr("[Source: MACD] Histogram crossed below zero", "[Source: MACD] Histogram crossed below zero")
+        elif macd_hist.iloc[-1] > 0 and macd_line.iloc[-1] > macd_signal.iloc[-1]:
+            macd_sig = "BUY"
+            macd_reason = tr("[Source: MACD] Positive histogram with bullish line structure", "[Source: MACD] Positive histogram with bullish line structure")
+        elif macd_hist.iloc[-1] < 0 and macd_line.iloc[-1] < macd_signal.iloc[-1]:
+            macd_sig = "SELL"
+            macd_reason = tr("[Source: MACD] Negative histogram with bearish line structure", "[Source: MACD] Negative histogram with bearish line structure")
 
     bb_sig = "NEUTRAL"
-    bb_reason = tr("Price around Bollinger mid area", "قیمت در محدوده میانی بولینگر")
+    bb_reason = tr("[Source: Bollinger] Price near mid band", "[Source: Bollinger] Price near mid band")
     bb_high = safe_last(bb.bollinger_hband(), default=curr_price)
     bb_low = safe_last(bb.bollinger_lband(), default=curr_price)
+    bb_mid = safe_last(bb.bollinger_mavg(), default=curr_price)
     if curr_price < bb_low and curr_rsi < 35:
         bb_sig = "BUY"
-        bb_reason = tr("Lower band overshoot with low RSI", "اشباع فروش در کف باند پایین")
+        bb_reason = tr("[Source: Bollinger] Lower-band overshoot + low RSI", "[Source: Bollinger] Lower-band overshoot + low RSI")
     elif curr_price > bb_high and curr_rsi > 65:
         bb_sig = "SELL"
-        bb_reason = tr("Upper band overshoot with high RSI", "اشباع خرید در سقف باند بالا")
+        bb_reason = tr("[Source: Bollinger] Upper-band overshoot + high RSI", "[Source: Bollinger] Upper-band overshoot + high RSI")
+    elif curr_price > bb_mid and curr_rsi >= 50:
+        bb_sig = "BUY"
+        bb_reason = tr("[Source: Bollinger] Above mid-band with positive momentum", "[Source: Bollinger] Above mid-band with positive momentum")
+    elif curr_price < bb_mid and curr_rsi <= 50:
+        bb_sig = "SELL"
+        bb_reason = tr("[Source: Bollinger] Below mid-band with negative momentum", "[Source: Bollinger] Below mid-band with negative momentum")
 
     fund_score = 0
     if dxy_ret < 0:
@@ -2132,12 +2127,14 @@ if not df.empty:
         fund_score -= 1
 
     fund_sig = "NEUTRAL"
-    if fund_score >= 2:
+    if fund_score >= 1:
         fund_sig = "BUY"
-    elif fund_score <= -2:
+    elif fund_score <= -1:
         fund_sig = "SELL"
-    fund_reason = tr(f"DXY:{dxy_ret:.2f}% | 10Y:{us10y_ret:.2f}% | Silver:{silver_ret:.2f}% | Copper:{copper_ret:.2f}%", 
-                       f"دلار:{dxy_ret:.2f}% | 10Y:{us10y_ret:.2f}% | نقره:{silver_ret:.2f}% | مس:{copper_ret:.2f}%")
+    fund_reason = tr(
+        f"[Source: DXY/US10Y/Silver/Copper] score={fund_score} | DXY:{dxy_ret:.2f}% | 10Y:{us10y_ret:.2f}% | Silver:{silver_ret:.2f}% | Copper:{copper_ret:.2f}%",
+        f"[Source: DXY/US10Y/Silver/Copper] score={fund_score} | DXY:{dxy_ret:.2f}% | 10Y:{us10y_ret:.2f}% | Silver:{silver_ret:.2f}% | Copper:{copper_ret:.2f}%",
+    )
 
     trend_sig = "NEUTRAL"
     trend_reason = tr("Main trend is range/unclear", "Main trend is range/unclear")
@@ -2242,8 +2239,8 @@ if not df.empty:
             gate_soft_fails += 1
             bearish_reasons.append(tr("Quality gate soft-fail", "Quality gate soft-fail"))
 
-    # Neutralize only if at least two gates fail together.
-    if signal != "NEUTRAL" and gate_soft_fails >= 2:
+    # Neutralize only if all three gates fail together.
+    if signal != "NEUTRAL" and gate_soft_fails >= 3:
         signal = "NEUTRAL"
         bearish_reasons.append(tr("Multiple gates blocked signal", "Multiple gates blocked signal"))
 
@@ -2708,13 +2705,12 @@ if not df.empty:
     sig_text_map = {"BUY": T["sig_buy"], "SELL": T["sig_sell"], "NEUTRAL": T["sig_neutral"]}
     method_rows = []
     method_conf_map = {
-        "price_action": min(95.0, 45.0 + abs(curr_price - safe_last(ema50)) / max(curr_atr, 1e-9) * 8.0),
-        "fib": min(90.0, 40.0 + (8.0 if fib_sig != "NEUTRAL" else 0.0) + abs(curr_price - (swing_high + swing_low) / 2) / max(curr_atr, 1e-9) * 3.0),
-        "rsi": min(88.0, 35.0 + abs(curr_rsi - 50.0) * 1.2),
-        "macd": min(90.0, 35.0 + abs(curr_macd_hist) * 180.0),
-        "bollinger": min(85.0, 35.0 + abs(curr_price - bb_mid) / max(curr_atr, 1e-9) * 12.0),
-        "trend_follow": min(94.0, 40.0 + (12.0 if trend_sig != "NEUTRAL" else 0.0) + abs(trend_ema50 - trend_ema200) / max(curr_atr, 1e-9) * 6.0),
-        "fundamental": min(92.0, 35.0 + abs(fund_score) * 14.0),
+        "price_action": min(95.0, 42.0 + abs(curr_price - safe_last(ema20)) / max(curr_atr, 1e-9) * 9.0),
+        "macd": min(93.0, 40.0 + abs(curr_macd_hist) * 220.0),
+        "bollinger": min(90.0, 38.0 + abs(curr_price - bb_mid) / max(curr_atr, 1e-9) * 10.0),
+        "trend_follow": min(95.0, 45.0 + abs(trend_ema50 - trend_ema200) / max(curr_atr, 1e-9) * 7.0),
+        "fundamental": min(92.0, 40.0 + abs(fund_score) * 18.0),
+        "ai_branch": min(95.0, max(30.0, float(ai_conf))),
     }
     for method_code, method_name, method_sig, method_reason in method_signals:
         method_conf = method_conf_map.get(method_code, 50.0)
@@ -2758,8 +2754,8 @@ if not df.empty:
     if chart_mode == T["chart_tv"]:
         # Match TradingView chart with selected futures instrument.
         tv_symbol_map = {
-            "GC=F": "OANDA:XAUUSD",
-            "SI=F": "OANDA:XAGUSD",
+            "GC=F": "COMEX:GC1!",
+            "SI=F": "COMEX:SI1!",
         }
         tv_interval_map = {
             "1m": "1",
@@ -2769,7 +2765,7 @@ if not df.empty:
             "4h": "240",
             "1d": "D",
         }
-        tv_symbol = tv_symbol_map.get(asset_name, "OANDA:XAUUSD")
+        tv_symbol = tv_symbol_map.get(asset_name, "COMEX:GC1!")
         tv_interval = tv_interval_map.get(timeframe, "60")
         tv_theme = "dark"
         tv_locale = "fa" if lang == "fa" else "en"
