@@ -556,6 +556,93 @@ def pct_change_n(series: pd.Series, n: int) -> float:
     return (curr / prev - 1.0) * 100.0
 
 
+def get_market_structure(
+    high: pd.Series,
+    low: pd.Series,
+    close: pd.Series,
+    lookback: int = 80,
+) -> dict:
+    hs = pd.to_numeric(high, errors="coerce").dropna()
+    ls = pd.to_numeric(low, errors="coerce").dropna()
+    cs = pd.to_numeric(close, errors="coerce").dropna()
+    if hs.empty or ls.empty or cs.empty:
+        return {
+            "support": 0.0,
+            "resistance": 0.0,
+            "near_support": False,
+            "near_resistance": False,
+            "round_bias": "NEUTRAL",
+            "signal": "NEUTRAL",
+            "reason": "market structure unavailable",
+        }
+
+    lb = min(lookback, len(cs))
+    window_high = hs.iloc[-lb:]
+    window_low = ls.iloc[-lb:]
+    current = float(cs.iloc[-1])
+    support = float(window_low.quantile(0.2))
+    resistance = float(window_high.quantile(0.8))
+    rng = max(resistance - support, max(current * 0.002, 1e-6))
+    near_support = abs(current - support) <= 0.12 * rng
+    near_resistance = abs(current - resistance) <= 0.12 * rng
+
+    # Round-number reaction zones (gold often reacts around .00/.50 levels).
+    near_00 = abs(current - round(current)) <= 0.18
+    near_50 = abs(current - (np.floor(current) + 0.5)) <= 0.18
+    round_bias = "NEUTRAL"
+    if near_support and (near_00 or near_50):
+        round_bias = "BUY"
+    elif near_resistance and (near_00 or near_50):
+        round_bias = "SELL"
+
+    signal = "NEUTRAL"
+    reason = "range center"
+    if current > resistance:
+        signal = "BUY"
+        reason = "structure breakout above resistance"
+    elif current < support:
+        signal = "SELL"
+        reason = "structure breakdown below support"
+    elif near_support:
+        signal = "BUY"
+        reason = "reaction near support zone"
+    elif near_resistance:
+        signal = "SELL"
+        reason = "reaction near resistance zone"
+
+    if signal == "NEUTRAL" and round_bias != "NEUTRAL":
+        signal = round_bias
+        reason = "round-level reaction"
+
+    return {
+        "support": support,
+        "resistance": resistance,
+        "near_support": near_support,
+        "near_resistance": near_resistance,
+        "round_bias": round_bias,
+        "signal": signal,
+        "reason": reason,
+    }
+
+
+def get_higher_tf_trend(df_higher: pd.DataFrame) -> tuple[str | None, float]:
+    if df_higher.empty or "Close" not in df_higher.columns:
+        return None, 0.0
+    ht_close = pd.to_numeric(df_higher["Close"], errors="coerce").dropna()
+    if len(ht_close) < 220:
+        return None, 0.0
+    ht_ema50 = EMAIndicator(ht_close, window=50).ema_indicator()
+    ht_ema200 = EMAIndicator(ht_close, window=200).ema_indicator()
+    if ht_ema50.dropna().empty or ht_ema200.dropna().empty:
+        return None, 0.0
+    slope = float(ht_ema50.iloc[-1] - ht_ema50.iloc[-4]) if len(ht_ema50.dropna()) > 5 else 0.0
+    if ht_close.iloc[-1] > ht_ema200.iloc[-1] and ht_ema50.iloc[-1] > ht_ema200.iloc[-1] and slope > 0:
+        return "UP", slope
+    if ht_close.iloc[-1] < ht_ema200.iloc[-1] and ht_ema50.iloc[-1] < ht_ema200.iloc[-1] and slope < 0:
+        return "DOWN", slope
+    return "RANGE", slope
+
+
 JOURNAL_PATH = Path("signal_journal.csv")
 
 
@@ -1928,12 +2015,7 @@ if not df.empty:
 
     # Higher timeframe confirmation
     df_higher, higher_tf = get_higher_timeframe(asset_name, timeframe)
-    ht_trend = None
-    if not df_higher.empty and "Close" in df_higher.columns:
-        ht_close = df_higher["Close"].squeeze()
-        ht_ema50 = EMAIndicator(ht_close, window=50).ema_indicator()
-        if len(ht_ema50.dropna()) > 0:
-            ht_trend = "UP" if ht_close.iloc[-1] > ht_ema50.iloc[-1] else "DOWN"
+    ht_trend, _ht_slope = get_higher_tf_trend(df_higher)
 
     # Correlation with DXY
     correlation = 0.0
@@ -1950,69 +2032,76 @@ if not df.empty:
     bullish_reasons = []
     bearish_reasons = []
 
-    # 1) Trend structure
+    trend_bias = "UP" if curr_price > safe_last(ema200) else "DOWN"
+    market_structure = get_market_structure(high, low, close)
+
+    # 1) Trend structure with heavy EMA200 weighting
+    if curr_price > safe_last(ema200):
+        long_pts += 26
+        bullish_reasons.append(tr("Price above EMA200 (primary trend filter)", "Price above EMA200 (primary trend filter)"))
+    else:
+        short_pts += 26
+        bearish_reasons.append(tr("Price below EMA200 (primary trend filter)", "Price below EMA200 (primary trend filter)"))
+
     if safe_last(ema20) > safe_last(ema50) > safe_last(ema200):
-        long_pts += 18
-        bullish_reasons.append(tr("Bull trend stack: EMA20 > EMA50 > EMA200", "انباشت روند صعودی: EMA20 > EMA50 > EMA200"))
+        long_pts += 12
     elif safe_last(ema20) < safe_last(ema50) < safe_last(ema200):
-        short_pts += 18
-        bearish_reasons.append(tr("Bear trend stack: EMA20 < EMA50 < EMA200", "انباشت روند نزولی: EMA20 < EMA50 < EMA200"))
+        short_pts += 12
 
     if ema50_slope > 0:
-        long_pts += 8
-        bullish_reasons.append(tr("EMA50 slope is positive", "شیب EMA50 مثبت است"))
-    else:
-        short_pts += 8
-        bearish_reasons.append(tr("EMA50 slope is negative", "شیب EMA50 منفی است"))
+        long_pts += 9
+    elif ema50_slope < 0:
+        short_pts += 9
 
-    if curr_adx >= 25:
-        if curr_price > safe_last(ema50):
-            long_pts += 8
-            bullish_reasons.append(tr(f"ADX {curr_adx:.1f}: trend strength supports upside", f"ADX {curr_adx:.1f}: قدرت روند از صعود حمایت می‌کند"))
+    if curr_adx >= 22:
+        if trend_bias == "UP":
+            long_pts += 7
         else:
-            short_pts += 8
-            bearish_reasons.append(tr(f"ADX {curr_adx:.1f}: trend strength supports downside", f"ADX {curr_adx:.1f}: قدرت روند از نزول حمایت می‌کند"))
+            short_pts += 7
 
-    # 2) Momentum
-    if curr_rsi > 55:
-        long_pts += 8
-        bullish_reasons.append(tr("RSI regime > 55", "RSI در محدوده صعودی > 55"))
-    elif curr_rsi < 45:
-        short_pts += 8
-        bearish_reasons.append(tr("RSI regime < 45", "RSI در محدوده نزولی < 45"))
+    # 2) Momentum (supportive only)
+    if 52 <= curr_rsi <= 68:
+        long_pts += 4
+    elif 32 <= curr_rsi <= 48:
+        short_pts += 4
 
     if curr_macd_hist > 0:
-        long_pts += 8
-        bullish_reasons.append(tr("MACD histogram positive", "هیستوگرام MACD مثبت است"))
-    else:
-        short_pts += 8
-        bearish_reasons.append(tr("MACD histogram negative", "هیستوگرام MACD منفی است"))
+        long_pts += 7
+    elif curr_macd_hist < 0:
+        short_pts += 7
 
-    # 3) Volatility + structure
-    rolling_high = safe_last(high.rolling(20).max(), default=curr_price)
-    rolling_low = safe_last(low.rolling(20).min(), default=curr_price)
-    if curr_price >= rolling_high:
-        long_pts += 10
-        bullish_reasons.append(tr("20-bar breakout to upside", "شکست مقاومت 20 کندل به سمت بالا"))
-    elif curr_price <= rolling_low:
-        short_pts += 10
-        bearish_reasons.append(tr("20-bar breakout to downside", "شکست حمایت 20 کندل به سمت پایین"))
+    # 3) Market structure and round levels
+    if market_structure["signal"] == "BUY":
+        long_pts += 14
+        bullish_reasons.append(
+            tr(
+                f"Structure: {market_structure['reason']} | S={market_structure['support']:.2f} R={market_structure['resistance']:.2f}",
+                f"Structure: {market_structure['reason']} | S={market_structure['support']:.2f} R={market_structure['resistance']:.2f}",
+            )
+        )
+    elif market_structure["signal"] == "SELL":
+        short_pts += 14
+        bearish_reasons.append(
+            tr(
+                f"Structure: {market_structure['reason']} | S={market_structure['support']:.2f} R={market_structure['resistance']:.2f}",
+                f"Structure: {market_structure['reason']} | S={market_structure['support']:.2f} R={market_structure['resistance']:.2f}",
+            )
+        )
 
-    bb_mid = safe_last(bb.bollinger_mavg(), default=curr_price)
-    if curr_price > bb_mid:
-        long_pts += 4
-        bullish_reasons.append(tr("Price above Bollinger midline", "قیمت بالاتر از خط میانی بولینگر"))
+    # 4) Flow / participation with relative volume
+    vol_sma = safe_last(volume.rolling(20).mean(), default=0.0)
+    vol_last = safe_last(volume, default=0.0)
+    rel_vol = vol_last / max(vol_sma, 1e-9) if vol_sma > 0 else 1.0
+    if rel_vol >= 1.15:
+        if obv_slope > 0:
+            long_pts += 10
+        elif obv_slope < 0:
+            short_pts += 10
     else:
-        short_pts += 4
-        bearish_reasons.append(tr("Price below Bollinger midline", "قیمت پایین‌تر از خط میانی بولینگر"))
-
-    # 4) Flow / participation
-    if obv_slope > 0:
-        long_pts += 6
-        bullish_reasons.append(tr("OBV rising (buy-side flow)", "افزایش OBV (جریان خرید)"))
-    else:
-        short_pts += 6
-        bearish_reasons.append(tr("OBV falling (sell-side flow)", "کاهش OBV (جریان فروش)"))
+        if obv_slope > 0:
+            long_pts += 4
+        elif obv_slope < 0:
+            short_pts += 4
 
     # 5) Intermarket dependencies (gold drivers)
     dxy_ret = pct_change_n(dxy["Close"].squeeze(), 5) if not dxy.empty and "Close" in dxy.columns else 0.0
@@ -2023,41 +2112,37 @@ if not df.empty:
     copper_df = market_ctx.get("copper", pd.DataFrame())
     copper_ret = pct_change_n(copper_df["Close"].squeeze(), 5) if not copper_df.empty and "Close" in copper_df.columns else 0.0
 
-    if dxy_ret < 0:
-        long_pts += 8
-        bullish_reasons.append(tr(f"DXY weakening ({dxy_ret:.2f}% / 5 bars)", f"تضعیف دلار ({dxy_ret:.2f}% / 5 کندل)"))
-    elif dxy_ret > 0:
-        short_pts += 8
-        bearish_reasons.append(tr(f"DXY strengthening ({dxy_ret:.2f}% / 5 bars)", f"تقویت دلار ({dxy_ret:.2f}% / 5 کندل)"))
+    if dxy_ret < -0.08:
+        long_pts += 14
+        bullish_reasons.append(tr(f"DXY weakening ({dxy_ret:.2f}% / 5 bars)", f"DXY weakening ({dxy_ret:.2f}% / 5 bars)"))
+    elif dxy_ret > 0.08:
+        short_pts += 14
+        bearish_reasons.append(tr(f"DXY strengthening ({dxy_ret:.2f}% / 5 bars)", f"DXY strengthening ({dxy_ret:.2f}% / 5 bars)"))
 
-    if us10y_ret < 0:
-        long_pts += 7
-        bullish_reasons.append(tr(f"US10Y yield falling ({us10y_ret:.2f}% / 5 bars)", f"کاهش بازده 10Y ({us10y_ret:.2f}% / 5 کندل)"))
-    elif us10y_ret > 0:
-        short_pts += 7
-        bearish_reasons.append(tr(f"US10Y yield rising ({us10y_ret:.2f}% / 5 bars)", f"افزایش بازده 10Y ({us10y_ret:.2f}% / 5 کندل)"))
+    if us10y_ret < -0.08:
+        long_pts += 11
+        bullish_reasons.append(tr(f"US10Y yield falling ({us10y_ret:.2f}% / 5 bars)", f"US10Y yield falling ({us10y_ret:.2f}% / 5 bars)"))
+    elif us10y_ret > 0.08:
+        short_pts += 11
+        bearish_reasons.append(tr(f"US10Y yield rising ({us10y_ret:.2f}% / 5 bars)", f"US10Y yield rising ({us10y_ret:.2f}% / 5 bars)"))
 
     if silver_ret > 0:
         long_pts += 5
-        bullish_reasons.append(tr(f"Silver confirms metals strength ({silver_ret:.2f}%)", f"نقره قدرت فلزات را تأیید می‌کند ({silver_ret:.2f}%)"))
     elif silver_ret < 0:
         short_pts += 5
-        bearish_reasons.append(tr(f"Silver confirms metals weakness ({silver_ret:.2f}%)", f"نقره ضعف فلزات را تأیید می‌کند ({silver_ret:.2f}%)"))
 
     if copper_ret > 0:
-        long_pts += 2
-        bullish_reasons.append(tr("Copper risk-on support", "مس از ریسک‌پذیری حمایت می‌کند"))
+        long_pts += 1
     elif copper_ret < 0:
-        short_pts += 2
-        bearish_reasons.append(tr("Copper risk-off pressure", "مس تحت فشار ریسک‌گریزی است"))
+        short_pts += 1
 
     # 6) Higher timeframe confirmation
     if ht_trend == "UP":
-        long_pts += 8
-        bullish_reasons.append(tr(f"Higher TF ({higher_tf}) trend is up", f"روند تایم‌فریم بالاتر ({higher_tf}) صعودی است"))
+        long_pts += 15
+        bullish_reasons.append(tr(f"Higher TF ({higher_tf}) trend is up", f"Higher TF ({higher_tf}) trend is up"))
     elif ht_trend == "DOWN":
-        short_pts += 8
-        bearish_reasons.append(tr(f"Higher TF ({higher_tf}) trend is down", f"روند تایم‌فریم بالاتر ({higher_tf}) نزولی است"))
+        short_pts += 15
+        bearish_reasons.append(tr(f"Higher TF ({higher_tf}) trend is down", f"Higher TF ({higher_tf}) trend is down"))
 
     # 7) Sentiment Analysis (if enabled)
     if sentiment_data:
@@ -2067,8 +2152,6 @@ if not df.empty:
         elif sentiment_data['overall'] == 'bearish':
             short_pts += abs(sentiment_impact_score)
             bearish_reasons.append(tr(f"Market sentiment bearish ({sentiment_data['confidence']:.1f})", f"سنتیمنت بازار نزولی ({sentiment_data['confidence']:.1f})"))
-
-    net_score = long_pts - short_pts
 
     # --- Per-method signal box (technical + fundamental) ---
     prev_high_20 = safe_last(high.shift(1).rolling(20).max(), default=curr_price)
@@ -2105,33 +2188,22 @@ if not df.empty:
             macd_sig = "SELL"
             macd_reason = tr("[Source: MACD] Negative histogram with bearish line structure", "[Source: MACD] Negative histogram with bearish line structure")
 
-    bb_sig = "NEUTRAL"
-    bb_reason = tr("[Source: Bollinger] Price near mid band", "[Source: Bollinger] Price near mid band")
-    bb_high = safe_last(bb.bollinger_hband(), default=curr_price)
-    bb_low = safe_last(bb.bollinger_lband(), default=curr_price)
     bb_mid = safe_last(bb.bollinger_mavg(), default=curr_price)
-    if curr_price < bb_low and curr_rsi < 35:
-        bb_sig = "BUY"
-        bb_reason = tr("[Source: Bollinger] Lower-band overshoot + low RSI", "[Source: Bollinger] Lower-band overshoot + low RSI")
-    elif curr_price > bb_high and curr_rsi > 65:
-        bb_sig = "SELL"
-        bb_reason = tr("[Source: Bollinger] Upper-band overshoot + high RSI", "[Source: Bollinger] Upper-band overshoot + high RSI")
-    elif curr_price > bb_mid and curr_rsi >= 50:
-        bb_sig = "BUY"
-        bb_reason = tr("[Source: Bollinger] Above mid-band with positive momentum", "[Source: Bollinger] Above mid-band with positive momentum")
-    elif curr_price < bb_mid and curr_rsi <= 50:
-        bb_sig = "SELL"
-        bb_reason = tr("[Source: Bollinger] Below mid-band with negative momentum", "[Source: Bollinger] Below mid-band with negative momentum")
+    structure_sig = str(market_structure.get("signal", "NEUTRAL"))
+    structure_reason = tr(
+        f"[Source: Structure] {market_structure.get('reason', 'range')} | S={market_structure.get('support', 0.0):.2f} | R={market_structure.get('resistance', 0.0):.2f}",
+        f"[Source: Structure] {market_structure.get('reason', 'range')} | S={market_structure.get('support', 0.0):.2f} | R={market_structure.get('resistance', 0.0):.2f}",
+    )
 
     fund_score = 0
-    if dxy_ret < 0:
-        fund_score += 1
-    elif dxy_ret > 0:
-        fund_score -= 1
-    if us10y_ret < 0:
-        fund_score += 1
-    elif us10y_ret > 0:
-        fund_score -= 1
+    if dxy_ret < -0.08:
+        fund_score += 2
+    elif dxy_ret > 0.08:
+        fund_score -= 2
+    if us10y_ret < -0.08:
+        fund_score += 2
+    elif us10y_ret > 0.08:
+        fund_score -= 2
     if silver_ret > 0:
         fund_score += 1
     elif silver_ret < 0:
@@ -2142,9 +2214,9 @@ if not df.empty:
         fund_score -= 1
 
     fund_sig = "NEUTRAL"
-    if fund_score >= 1:
+    if fund_score >= 2:
         fund_sig = "BUY"
-    elif fund_score <= -1:
+    elif fund_score <= -2:
         fund_sig = "SELL"
     fund_reason = tr(
         f"[Source: DXY/US10Y/Silver/Copper] score={fund_score} | DXY:{dxy_ret:.2f}% | 10Y:{us10y_ret:.2f}% | Silver:{silver_ret:.2f}% | Copper:{copper_ret:.2f}%",
@@ -2165,7 +2237,7 @@ if not df.empty:
     method_signals = [
         ("price_action", T["method_price_action"], pa_sig, pa_reason),
         ("macd", T["method_macd"], macd_sig, macd_reason),
-        ("bollinger", T["method_bollinger"], bb_sig, bb_reason),
+        ("market_structure", tr("Market Structure", "Market Structure"), structure_sig, structure_reason),
         ("trend_follow", tr("Trend Tracking", "Trend Tracking"), trend_sig, trend_reason),
         ("fundamental", T["method_fundamental"], fund_sig, fund_reason),
     ]
@@ -2193,51 +2265,62 @@ if not df.empty:
             )
     method_signals.append(("ai_branch", tr("AI Branch", "AI Branch"), ai_sig, f"[{ai_source}] {ai_reason}"))
 
-    # Core signal is driven by active methods and recalculated on every refresh.
-    core_methods = [pa_sig, macd_sig, bb_sig, trend_sig, fund_sig]
+    # Core signal is driven by weighted methods and recalculated on every refresh.
+    method_weights = {
+        "price_action": 1.8,
+        "macd": 1.0,
+        "market_structure": 2.4,
+        "trend_follow": 3.0,
+        "fundamental": 2.6,
+    }
+    core_methods = method_signals[:5]
     method_count = len(core_methods)
-    buy_votes = sum(1 for s in core_methods if s == "BUY")
-    sell_votes = sum(1 for s in core_methods if s == "SELL")
-    neutral_votes = method_count - buy_votes - sell_votes
-    agreement_pct = (max(buy_votes, sell_votes) / max(float(method_count), 1.0)) * 100.0
-    perf_ref = (walkforward_data.get("oos_win_rate") if walkforward_data else None)
-    if perf_ref is None and backtest_data:
-        perf_ref = backtest_data.get("win_rate")
-    # Internal adaptive consensus (not exposed as a separate gate).
-    min_votes = 2
-    if perf_ref is not None and float(perf_ref) < 48.0:
-        min_votes = 3
-
+    buy_votes = sum(1 for _, _, s, _ in core_methods if s == "BUY")
+    sell_votes = sum(1 for _, _, s, _ in core_methods if s == "SELL")
+    buy_weight = sum(method_weights.get(code, 1.0) for code, _, s, _ in core_methods if s == "BUY")
+    sell_weight = sum(method_weights.get(code, 1.0) for code, _, s, _ in core_methods if s == "SELL")
+    total_core_weight = sum(method_weights.get(code, 1.0) for code, _, _, _ in core_methods)
+    weight_edge = buy_weight - sell_weight
+    agreement_pct = (max(buy_weight, sell_weight) / max(total_core_weight, 1e-9)) * 100.0
     signal = "NEUTRAL"
-    if buy_votes == method_count:
+    if buy_weight >= total_core_weight * 0.92:
         signal = "VERY STRONG BUY"
-    elif sell_votes == method_count:
+    elif sell_weight >= total_core_weight * 0.92:
         signal = "VERY STRONG SELL"
-    elif buy_votes >= max(method_count - 1, min_votes) and sell_votes == 0:
+    elif buy_weight >= total_core_weight * 0.74 and sell_weight <= total_core_weight * 0.08:
         signal = "STRONG BUY"
-    elif sell_votes >= max(method_count - 1, min_votes) and buy_votes == 0:
+    elif sell_weight >= total_core_weight * 0.74 and buy_weight <= total_core_weight * 0.08:
         signal = "STRONG SELL"
-    elif buy_votes >= min_votes and buy_votes > sell_votes:
+    elif buy_weight > sell_weight and buy_weight >= total_core_weight * 0.52:
         signal = "BUY"
-    elif sell_votes >= min_votes and sell_votes > buy_votes:
+    elif sell_weight > buy_weight and sell_weight >= total_core_weight * 0.52:
         signal = "SELL"
 
     # Fallback to directional trend when votes are low but one-sided.
     if signal == "NEUTRAL":
-        if trend_sig == "BUY" and buy_votes >= 2 and sell_votes == 0:
+        if trend_sig == "BUY" and buy_weight > sell_weight and sell_votes == 0:
             signal = "BUY"
-        elif trend_sig == "SELL" and sell_votes >= 2 and buy_votes == 0:
+        elif trend_sig == "SELL" and sell_weight > buy_weight and buy_votes == 0:
             signal = "SELL"
+
+    # Hard bias rule: no buy below EMA200 and no sell above EMA200 when trend is clear.
+    if curr_price < safe_last(ema200) and "BUY" in signal:
+        signal = "NEUTRAL" if ht_trend in {"DOWN", "RANGE", None} else "BUY"
+        bearish_reasons.append(tr("Hard filter: buy blocked below EMA200", "Hard filter: buy blocked below EMA200"))
+    if curr_price > safe_last(ema200) and "SELL" in signal and ht_trend == "UP":
+        signal = "NEUTRAL"
+        bullish_reasons.append(tr("Hard filter: sell blocked against EMA200 uptrend", "Hard filter: sell blocked against EMA200 uptrend"))
 
     # AI branch is informational only (no impact on main signal).
 
     gate_soft_fails = 0
 
-    # Softer higher-timeframe alignment gate.
+    # Stronger higher-timeframe alignment gate.
     if enforce_mtf_alignment and signal != "NEUTRAL" and ht_trend in {"UP", "DOWN"}:
         if ("BUY" in signal and ht_trend == "DOWN") or ("SELL" in signal and ht_trend == "UP"):
             gate_soft_fails += 1
-            bearish_reasons.append(tr("Higher-TF conflict (soft gate)", "Higher-TF conflict (soft gate)"))
+            signal = "NEUTRAL"
+            bearish_reasons.append(tr("Higher-TF conflict: signal blocked", "Higher-TF conflict: signal blocked"))
 
     # Softer high-impact news gate.
     if enable_news_filter and signal != "NEUTRAL":
@@ -2254,13 +2337,12 @@ if not df.empty:
             gate_soft_fails += 1
             bearish_reasons.append(tr("Quality gate soft-fail", "Quality gate soft-fail"))
 
-    # Neutralize only if all three gates fail together.
-    if signal != "NEUTRAL" and gate_soft_fails >= 3:
+    # Neutralize if two risk gates fail together.
+    if signal != "NEUTRAL" and gate_soft_fails >= 2:
         signal = "NEUTRAL"
-        bearish_reasons.append(tr("Multiple gates blocked signal", "Multiple gates blocked signal"))
+        bearish_reasons.append(tr("Risk gates blocked signal", "Risk gates blocked signal"))
 
     # Confidence / bias from vote-consensus logic.
-    vote_edge = buy_votes - sell_votes
     atr_baseline_core = safe_last(atr.rolling(50).mean(), default=curr_atr)
     regime_data = detect_market_regime(curr_adx, curr_atr, atr_baseline_core)
     max_votes = max(buy_votes, sell_votes)
@@ -2268,9 +2350,9 @@ if not df.empty:
     ai_bonus = 0.0
     confidence = min(99.0, max(1.0, agreement_pct + unanimity_bonus + regime_data["conf_bonus"] + ai_bonus))
 
-    method_net = float(vote_edge)
-    method_total_weight = float(method_count)
-    bias_score = float(np.clip(vote_edge * 22.0 + (fund_score * 4.0), -100.0, 100.0))
+    method_net = float(weight_edge)
+    method_total_weight = float(total_core_weight)
+    bias_score = float(np.clip((weight_edge / max(total_core_weight, 1e-9)) * 100.0 + (fund_score * 3.0), -100.0, 100.0))
 
     signal_prob = compute_signal_probability(
         bias_score=bias_score,
@@ -2320,10 +2402,13 @@ if not df.empty:
     # --- Risk Management ---
     is_long = signal in ["BUY", "STRONG BUY", "VERY STRONG BUY"]
     has_trade_signal = signal in ["BUY", "STRONG BUY", "VERY STRONG BUY", "SELL", "STRONG SELL", "VERY STRONG SELL"]
+    atr_baseline_rm = safe_last(atr.rolling(50).mean(), default=curr_atr)
+    atr_ratio = curr_atr / max(atr_baseline_rm, 1e-9)
+    dynamic_atr_mult = float(np.clip(atr_mult * (0.85 + 0.5 * atr_ratio), atr_mult * 0.8, atr_mult * 1.9))
     if has_trade_signal:
-        sl = curr_price - (atr_mult * curr_atr) if is_long else curr_price + (atr_mult * curr_atr)
-        tp = curr_price + (rr_ratio * atr_mult * curr_atr) if is_long else curr_price - (rr_ratio * atr_mult * curr_atr)
-        tp2 = curr_price + ((rr_ratio + 1.0) * atr_mult * curr_atr) if is_long else curr_price - ((rr_ratio + 1.0) * atr_mult * curr_atr)
+        sl = curr_price - (dynamic_atr_mult * curr_atr) if is_long else curr_price + (dynamic_atr_mult * curr_atr)
+        tp = curr_price + (rr_ratio * dynamic_atr_mult * curr_atr) if is_long else curr_price - (rr_ratio * dynamic_atr_mult * curr_atr)
+        tp2 = curr_price + ((rr_ratio + 1.0) * dynamic_atr_mult * curr_atr) if is_long else curr_price - ((rr_ratio + 1.0) * dynamic_atr_mult * curr_atr)
         entry_low = curr_price - (0.25 * curr_atr)
         entry_high = curr_price + (0.25 * curr_atr)
     else:
@@ -2723,7 +2808,7 @@ if not df.empty:
     method_conf_map = {
         "price_action": min(95.0, 42.0 + abs(curr_price - safe_last(ema20)) / max(curr_atr, 1e-9) * 9.0),
         "macd": min(93.0, 40.0 + abs(curr_macd_hist) * 220.0),
-        "bollinger": min(90.0, 38.0 + abs(curr_price - bb_mid) / max(curr_atr, 1e-9) * 10.0),
+        "market_structure": min(94.0, 44.0 + abs(curr_price - market_structure.get("support", curr_price)) / max(curr_atr, 1e-9) * 4.0),
         "trend_follow": min(95.0, 45.0 + abs(trend_ema50 - trend_ema200) / max(curr_atr, 1e-9) * 7.0),
         "fundamental": min(92.0, 40.0 + abs(fund_score) * 18.0),
         "ai_branch": min(95.0, max(30.0, float(ai_conf))),
