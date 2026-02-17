@@ -429,9 +429,32 @@ def get_live_price(symbol: str) -> float | None:
     return None
 
 def get_fresh_quote(symbols: list[str]) -> tuple[float | None, float, str | None]:
-    """Return the freshest available 1m quote among candidate symbols."""
+    """Return freshest quote; prefer fast_info tick, fallback to 1m candles."""
     best = None
     for sym in symbols:
+        # Fast tick-like quote (updates faster than 1m candle close).
+        try:
+            ticker = yf.Ticker(sym)
+            fast_info = getattr(ticker, "fast_info", None)
+            if fast_info:
+                fast_last = fast_info.get("lastPrice") or fast_info.get("last_price")
+                if fast_last is not None:
+                    price = float(fast_last)
+                    if price > 0:
+                        q = safe_yf_download(sym, period="1d", interval="1m", retries=1)
+                        delta = 0.0
+                        if not q.empty and "Close" in q.columns:
+                            close = pd.to_numeric(q["Close"], errors="coerce").dropna()
+                            if len(close) >= 1:
+                                delta = price - float(close.iloc[-1])
+                        ts = pd.Timestamp.utcnow()
+                        item = (ts, price, delta, f"{sym}:fast")
+                        if best is None or item[0] > best[0]:
+                            best = item
+        except Exception:
+            pass
+
+        # Candle fallback.
         q = safe_yf_download(sym, period="1d", interval="1m", retries=2)
         if q.empty or "Close" not in q.columns:
             continue
@@ -443,7 +466,7 @@ def get_fresh_quote(symbols: list[str]) -> tuple[float | None, float, str | None
             continue
         price = float(close.iloc[-1])
         delta = float(close.iloc[-1] - close.iloc[-2]) if len(close) >= 2 else 0.0
-        item = (ts, price, delta, sym)
+        item = (ts, price, delta, f"{sym}:1m")
         if best is None or item[0] > best[0]:
             best = item
     if best is None:
@@ -2407,10 +2430,11 @@ if not df.empty:
         <div class="top-status">
             <span class="k">{tr("Price", "قیمت")}:</span><span class="v"><strong>${curr_price:,.2f}</strong></span>
             <span class="k">{tr("Signal", "سیگنال")}:</span><span class="v"><span class="{badge_class}">{signal_display}</span></span>
-            <span class="k">{T["confidence"]}:</span><span class="v"><strong>{confidence:.0f}%</strong></span>
+            <span class="k">{T["confidence"]}:</span><span class="v"><strong>{confidence:.1f}%</strong></span>
             <span class="k">{tr("Win Prob", "احتمال موفقیت")}:</span><span class="v"><strong>{signal_prob['win_prob']:.1f}%</strong></span>
             <span class="k">{tr("Regime", "رژیم")}:</span><span class="v"><strong>{regime_data['name']}</strong></span>
             <span class="k">{T["last_update"]}:</span><span class="v">{now_iran_str('%H:%M:%S')} IRT</span>
+            <span class="k">{tr("Quote", "Quote")}:</span><span class="v">{quote_source or "n/a"}</span>
         </div>
         """,
         unsafe_allow_html=True,
@@ -2434,7 +2458,7 @@ if not df.empty:
             <span class="h-label">{tr("Main Signal", "سیگنال اصلی")}:</span>
             <span class="h-value">{signal_display}</span>
             <span class="h-label">{T["confidence"]}:</span>
-            <span class="h-value">{confidence:.0f}%</span>
+            <span class="h-value">{confidence:.1f}%</span>
             <span class="h-label">{T["bias_score"]}:</span>
             <span class="h-value">{bias_score:.1f}</span>
         </div>
@@ -2485,7 +2509,7 @@ if not df.empty:
         conf_tag = tr("Strong", "قوی")
     elif confidence >= 50:
         conf_tag = tr("Medium", "متوسط")
-    c5.metric(T["confidence"], f"{confidence:.0f}%", conf_tag)
+    c5.metric(T["confidence"], f"{confidence:.1f}%", conf_tag)
 
     c6, c7, c8 = st.columns([1.2, 1, 1])
     with c6:
@@ -2719,7 +2743,7 @@ if not df.empty:
                 "Method": method_name,
                 "_sig_code": method_sig,
                 T["method_signal_col"]: sig_text_map.get(method_sig, method_sig),
-                T["method_conf_col"]: f"{method_conf:.0f}%",
+                T["method_conf_col"]: f"{method_conf:.1f}%",
                 T["method_reason_col"]: str(method_reason),
                 "_conf_sort": method_conf,
             }
