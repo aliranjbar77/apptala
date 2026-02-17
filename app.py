@@ -2181,9 +2181,9 @@ if not df.empty:
     if perf_ref is None and backtest_data:
         perf_ref = backtest_data.get("win_rate")
     # Internal adaptive consensus (not exposed as a separate gate).
-    min_votes = 3
+    min_votes = 2
     if perf_ref is not None and float(perf_ref) < 48.0:
-        min_votes = 4
+        min_votes = 3
 
     signal = "NEUTRAL"
     if buy_votes == method_count:
@@ -2198,6 +2198,13 @@ if not df.empty:
         signal = "BUY"
     elif sell_votes >= min_votes and sell_votes > buy_votes:
         signal = "SELL"
+
+    # Fallback to directional trend when votes are low but one-sided.
+    if signal == "NEUTRAL":
+        if trend_sig == "BUY" and buy_votes >= 2 and sell_votes == 0:
+            signal = "BUY"
+        elif trend_sig == "SELL" and sell_votes >= 2 and buy_votes == 0:
+            signal = "SELL"
 
     # AI branch is informational only (no impact on main signal).
 
@@ -2733,8 +2740,8 @@ if not df.empty:
     if chart_mode == T["chart_tv"]:
         # Match TradingView chart with selected futures instrument.
         tv_symbol_map = {
-            "GC=F": "COMEX:GC1!",
-            "SI=F": "COMEX:SI1!",
+            "GC=F": "TVC:GOLD",
+            "SI=F": "TVC:SILVER",
         }
         tv_interval_map = {
             "1m": "1",
@@ -2744,7 +2751,7 @@ if not df.empty:
             "4h": "240",
             "1d": "D",
         }
-        tv_symbol = tv_symbol_map.get(asset_name, "COMEX:GC1!")
+        tv_symbol = tv_symbol_map.get(asset_name, "TVC:GOLD")
         tv_interval = tv_interval_map.get(timeframe, "60")
         tv_theme = "dark"
         tv_locale = "fa" if lang == "fa" else "en"
