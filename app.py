@@ -1725,32 +1725,31 @@ with st.sidebar.expander(T["backtesting"], expanded=False):
 with st.sidebar.expander("UI/UX", expanded=False):
     enable_audio_alerts = st.checkbox("Enable Audio Alerts", value=True, key="enable_audio_alerts_compact")
     enable_animations = st.checkbox("Enable Animations", value=True, key="enable_animations_compact")
-with st.sidebar.expander(tr("AI Confirmation", "تایید هوش مصنوعی"), expanded=False):
+with st.sidebar.expander(tr("AI Confirmation", "AI Confirmation"), expanded=False):
     enable_ai_confirmation = True
     ai_api_key = resolve_ai_api_key()
-    ai_provider = tr("External API", "API خارجی") if ai_api_key else tr("Local", "محلی")
+    ai_provider = tr("External API", "External API") if ai_api_key else tr("Free Local AI", "Free Local AI")
     ai_model = st.text_input(
-        tr("AI Model", "مدل هوش مصنوعی"),
+        tr("AI Model", "AI Model"),
         value="gpt-4o-mini",
         key="ai_model",
     )
     st.caption(
         tr(
-            f"Auto mode: {'External API' if ai_api_key else 'Local'} (no manual key input needed)",
-            f"حالت خودکار: {'API خارجی' if ai_api_key else 'محلی'} (نیازی به وارد کردن دستی کلید نیست)"
+            f"Auto mode: {'External API' if ai_api_key else 'Free Local AI'} (no manual key input needed)",
+            f"Auto mode: {'External API' if ai_api_key else 'Free Local AI'} (no manual key input needed)",
         )
     )
-with st.sidebar.expander(tr("Signal Engine", "موتور سیگنال"), expanded=False):
+with st.sidebar.expander(tr("Signal Engine", "Signal Engine"), expanded=False):
     enforce_mtf_alignment = st.checkbox(tr("Strict higher-TF alignment", "هم‌جهتی سخت‌گیرانه تایم بالاتر"), value=True, key="enforce_mtf_alignment")
     enable_news_filter = st.checkbox(tr("High-impact news filter", "فیلتر خبرهای مهم"), value=True, key="enable_news_filter")
     news_filter_minutes = st.slider(tr("News lock window (min)", "بازه قفل خبر (دقیقه)"), 15, 120, 45, 5, key="news_filter_minutes")
     enable_quality_gate = st.checkbox(tr("Quality gate", "گیت کیفیت"), value=True, key="enable_quality_gate")
     min_adx_gate = st.slider(tr("Min ADX", "حداقل ADX"), 10, 35, 18, 1, key="min_adx_gate")
     min_agreement_gate = st.slider(tr("Min method agreement (%)", "حداقل اجماع روش‌ها (%)"), 40, 100, 60, 5, key="min_agreement_gate")
-    enable_adaptive_threshold = st.checkbox(tr("Adaptive consensus threshold", "آستانه اجماع تطبیقی"), value=True, key="enable_adaptive_threshold")
     st.caption(tr(
-        "Signal basis: 5 methods vote -> AI confirm/veto -> regime + quality gates -> risk guard.",
-        "مبنای سیگنال: رای ۵ روش -> تایید/وتوی AI -> رژیم بازار + گیت کیفیت -> محافظ ریسک."
+        "Active gates: Higher-TF alignment + News lock + Quality gate.",
+        "Active gates: Higher-TF alignment + News lock + Quality gate."
     ))
 
 st.sidebar.markdown("---")
@@ -2112,22 +2111,27 @@ if not df.empty:
     fund_reason = tr(f"DXY:{dxy_ret:.2f}% | 10Y:{us10y_ret:.2f}% | Silver:{silver_ret:.2f}% | Copper:{copper_ret:.2f}%", 
                        f"دلار:{dxy_ret:.2f}% | 10Y:{us10y_ret:.2f}% | نقره:{silver_ret:.2f}% | مس:{copper_ret:.2f}%")
 
+    trend_sig = "NEUTRAL"
+    trend_reason = tr("Main trend is range/unclear", "Main trend is range/unclear")
+    trend_ema50 = safe_last(ema50)
+    trend_ema200 = safe_last(ema200)
+    if trend_ema50 > trend_ema200 and ema50_slope > 0:
+        trend_sig = "BUY"
+        trend_reason = tr("Main trend up (EMA50 > EMA200 + positive slope)", "Main trend up (EMA50 > EMA200 + positive slope)")
+    elif trend_ema50 < trend_ema200 and ema50_slope < 0:
+        trend_sig = "SELL"
+        trend_reason = tr("Main trend down (EMA50 < EMA200 + negative slope)", "Main trend down (EMA50 < EMA200 + negative slope)")
+
     method_signals = [
         ("price_action", T["method_price_action"], pa_sig, pa_reason),
-        ("fib", T["method_fib"], fib_sig, fib_reason),
-        ("rsi", T["method_rsi"], rsi_sig, rsi_reason),
         ("macd", T["method_macd"], macd_sig, macd_reason),
         ("bollinger", T["method_bollinger"], bb_sig, bb_reason),
+        ("trend_follow", tr("Trend Tracking", "Trend Tracking"), trend_sig, trend_reason),
         ("fundamental", T["method_fundamental"], fund_sig, fund_reason),
     ]
-    ai_source = tr("Neutral", "????")
-    ai_mode_label = tr("Neutral", "????")
-    ai_sig = "NEUTRAL"
-    ai_conf = 0.0
-    ai_reason = tr(
-        "No external AI key; AI branch stays neutral",
-        "???? AI ????? ???? ???? ???? ??? ?????? ???? ?? ????",
-    )
+    ai_source = tr("Free Local", "Free Local")
+    ai_mode_label = tr("Free Local", "Free Local")
+    ai_sig, ai_reason, ai_conf = ai_confirmation_signal(close)
     has_external_ai = bool(ai_api_key.strip()) and ai_provider == tr("External API", "API ?????")
     if enable_ai_confirmation and has_external_ai:
         ext_sig, ext_reason, ext_conf = ai_confirmation_external(
@@ -2140,35 +2144,34 @@ if not df.empty:
         )
         if ext_conf > 0:
             ai_sig, ai_reason, ai_conf = ext_sig, ext_reason, ext_conf
-            ai_source = tr("External", "?????")
-            ai_mode_label = tr("External", "?????")
+            ai_source = tr("External", "External")
+            ai_mode_label = tr("External", "External")
         else:
             ai_reason = tr(
                 "External AI unavailable; AI branch stayed neutral",
-                "AI ????? ?? ????? ????? ???? ??? ?????? ???? ????",
+                "External AI unavailable; local confirmation used",
             )
-    method_signals.append(("ai_branch", tr("AI Branch", "???? ??? ??????"), ai_sig, f"[{ai_source}] {ai_reason}"))
+    method_signals.append(("ai_branch", tr("AI Branch", "AI Branch"), ai_sig, f"[{ai_source}] {ai_reason}"))
 
-    # Core signal is driven by 5 analysis methods.
-    core5 = [pa_sig, fib_sig, rsi_sig, macd_sig, bb_sig]
-    buy_votes = sum(1 for s in core5 if s == "BUY")
-    sell_votes = sum(1 for s in core5 if s == "SELL")
-    neutral_votes = 5 - buy_votes - sell_votes
-    agreement_pct = (max(buy_votes, sell_votes) / 5.0) * 100.0
+    # Core signal is driven by 3 high-reliability methods + trend tracking.
+    core_methods = [pa_sig, macd_sig, bb_sig, trend_sig]
+    method_count = len(core_methods)
+    buy_votes = sum(1 for s in core_methods if s == "BUY")
+    sell_votes = sum(1 for s in core_methods if s == "SELL")
+    neutral_votes = method_count - buy_votes - sell_votes
+    agreement_pct = (max(buy_votes, sell_votes) / max(float(method_count), 1.0)) * 100.0
     perf_ref = (walkforward_data.get("oos_win_rate") if walkforward_data else None)
     if perf_ref is None and backtest_data:
         perf_ref = backtest_data.get("win_rate")
+    # Internal adaptive consensus (not exposed as a separate gate).
     min_votes = 3
-    if enable_adaptive_threshold and perf_ref is not None:
-        if float(perf_ref) < 48.0:
-            min_votes = 4
-        elif float(perf_ref) > 62.0:
-            min_votes = 3
+    if perf_ref is not None and float(perf_ref) < 48.0:
+        min_votes = 4
 
     signal = "NEUTRAL"
-    if buy_votes == 5:
+    if buy_votes == method_count:
         signal = "STRONG BUY"
-    elif sell_votes == 5:
+    elif sell_votes == method_count:
         signal = "STRONG SELL"
     elif buy_votes >= min_votes and sell_votes <= 1:
         signal = "BUY"
@@ -2208,12 +2211,13 @@ if not df.empty:
     vote_edge = buy_votes - sell_votes
     atr_baseline_core = safe_last(atr.rolling(50).mean(), default=curr_atr)
     regime_data = detect_market_regime(curr_adx, curr_atr, atr_baseline_core)
-    unanimity_bonus = 10.0 if (buy_votes == 5 or sell_votes == 5) else 4.0 if (buy_votes == 4 or sell_votes == 4) else 0.0
+    max_votes = max(buy_votes, sell_votes)
+    unanimity_bonus = 10.0 if max_votes == method_count else 4.0 if max_votes == max(method_count - 1, 1) else 0.0
     ai_bonus = (min(8.0, ai_conf * 0.15) if enable_ai_confirmation and ai_sig != "NEUTRAL" and signal != "NEUTRAL" and ai_sig in signal else 0.0)
     confidence = min(99.0, max(1.0, agreement_pct + unanimity_bonus + regime_data["conf_bonus"] + ai_bonus))
 
     method_net = float(vote_edge)
-    method_total_weight = 5.0
+    method_total_weight = float(method_count)
     bias_score = float(np.clip(vote_edge * 22.0 + (fund_score * 4.0), -100.0, 100.0))
 
     signal_prob = compute_signal_probability(
@@ -2354,7 +2358,7 @@ if not df.empty:
             <span class="k">{T["confidence"]}:</span><span class="v"><strong>{confidence:.0f}%</strong></span>
             <span class="k">{tr("Win Prob", "احتمال موفقیت")}:</span><span class="v"><strong>{signal_prob['win_prob']:.1f}%</strong></span>
             <span class="k">{tr("Regime", "رژیم")}:</span><span class="v"><strong>{regime_data['name']}</strong></span>
-            <span class="k">{tr("AI", "??? ??????")}:</span><span class="v"><span class="{ai_badge_class}">{ai_sig} ({ai_mode_label})</span></span>
+            <span class="k">{tr("AI", "AI")}:</span><span class="v"><span class="{ai_badge_class}">{ai_sig} ({ai_mode_label})</span></span>
             <span class="k">{T["last_update"]}:</span><span class="v">{now_iran_str('%H:%M:%S')} IRT</span>
         </div>
         """,
@@ -2643,6 +2647,7 @@ if not df.empty:
         "rsi": min(88.0, 35.0 + abs(curr_rsi - 50.0) * 1.2),
         "macd": min(90.0, 35.0 + abs(curr_macd_hist) * 180.0),
         "bollinger": min(85.0, 35.0 + abs(curr_price - bb_mid) / max(curr_atr, 1e-9) * 12.0),
+        "trend_follow": min(94.0, 40.0 + (12.0 if trend_sig != "NEUTRAL" else 0.0) + abs(trend_ema50 - trend_ema200) / max(curr_atr, 1e-9) * 6.0),
         "fundamental": min(92.0, 35.0 + abs(fund_score) * 14.0),
     }
     for method_code, method_name, method_sig, method_reason in method_signals:
