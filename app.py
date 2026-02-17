@@ -324,6 +324,36 @@ st.markdown(
         .pill-sell { background: rgba(255,90,122,0.2); color: #ff9eb0; }
         .pill-neutral { background: rgba(138,150,173,0.2); color: #c7d2e9; }
         .method-reason { font-size: 12px; color: #bcc9e3; line-height: 1.4; }
+        .site-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 12px;
+            padding: 10px 12px;
+            margin-bottom: 10px;
+            background: rgba(12, 20, 36, 0.78);
+        }
+        .site-header .brand { font-size: 15px; font-weight: 700; color: #f1f6ff; }
+        .site-header .nav { font-size: 13px; color: #c5d3ee; }
+        .right-menu {
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 10px;
+            margin-bottom: 12px;
+            background: rgba(18, 26, 43, 0.72);
+            position: sticky;
+            top: 70px;
+            z-index: 20;
+        }
+        .site-footer {
+            margin-top: 16px;
+            border-top: 1px solid rgba(255,255,255,0.12);
+            padding-top: 10px;
+            font-size: 12px;
+            color: #9fb0cf;
+            text-align: center;
+        }
         @media (max-width: 900px) {
             .method-grid { grid-template-columns: 1fr; }
             .kpi-strip { grid-template-columns: 1fr; }
@@ -573,6 +603,104 @@ def append_signal_journal(entry: dict, path: Path = JOURNAL_PATH) -> None:
         out.tail(5000).to_csv(path, index=False)
     except Exception:
         pass
+
+
+def in_high_impact_news_window(events: list, window_minutes: int = 45) -> tuple[bool, str]:
+    now = pd.Timestamp.utcnow()
+    for ev in events or []:
+        if str(ev.get("impact", "")).lower() != "high":
+            continue
+        dt_str = f"{ev.get('date', '')} {ev.get('time', '')}".strip()
+        ts = pd.to_datetime(dt_str, errors="coerce", utc=True)
+        if pd.isna(ts):
+            continue
+        diff_min = abs((ts - now).total_seconds()) / 60.0
+        if diff_min <= window_minutes:
+            return True, f"{ev.get('event', 'High Impact Event')} ({diff_min:.0f}m)"
+    return False, ""
+
+
+def ai_confirmation_signal(close: pd.Series) -> tuple[str, str, float]:
+    """Lightweight local AI-style confirmation using trend + momentum."""
+    valid = pd.to_numeric(close, errors="coerce").dropna()
+    if len(valid) < 30:
+        return "NEUTRAL", "Not enough data for AI confirmation", 0.0
+
+    n = min(60, len(valid))
+    y = valid.iloc[-n:].values.astype(float)
+    x = np.arange(n, dtype=float)
+    slope = float(np.polyfit(x, y, 1)[0])
+    projected_5bar = (slope * 5.0) / max(y[-1], 1e-9) * 100.0
+    momentum_5bar = ((y[-1] / max(y[-6], 1e-9)) - 1.0) * 100.0 if n >= 6 else 0.0
+    score = projected_5bar * 0.7 + momentum_5bar * 0.3
+
+    if score > 0.20:
+        return "BUY", f"AI trend+momentum score {score:.3f}", min(90.0, abs(score) * 120.0)
+    if score < -0.20:
+        return "SELL", f"AI trend+momentum score {score:.3f}", min(90.0, abs(score) * 120.0)
+    return "NEUTRAL", f"AI trend+momentum score {score:.3f}", min(70.0, abs(score) * 100.0)
+
+
+def ai_confirmation_external(
+    api_key: str,
+    model: str,
+    close: pd.Series,
+    curr_rsi: float,
+    curr_macd_hist: float,
+    curr_adx: float,
+) -> tuple[str, str, float]:
+    """Optional external AI confirmation via OpenAI-compatible Chat Completions API."""
+    valid = pd.to_numeric(close, errors="coerce").dropna()
+    if len(valid) < 30:
+        return "NEUTRAL", "Not enough data for external AI", 0.0
+
+    recent = valid.tail(40).tolist()
+    payload = {
+        "model": model,
+        "temperature": 0,
+        "response_format": {"type": "json_object"},
+        "messages": [
+            {
+                "role": "system",
+                "content": (
+                    "You are a trading signal confirmer. Return strict JSON with keys: "
+                    "signal (BUY/SELL/NEUTRAL), confidence (0-100), reason (short)."
+                ),
+            },
+            {
+                "role": "user",
+                "content": json.dumps(
+                    {
+                        "close_40": recent,
+                        "rsi": round(float(curr_rsi), 4),
+                        "macd_hist": round(float(curr_macd_hist), 6),
+                        "adx": round(float(curr_adx), 4),
+                    }
+                ),
+            },
+        ],
+    }
+    try:
+        r = requests.post(
+            "https://api.openai.com/v1/chat/completions",
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            json=payload,
+            timeout=12,
+        )
+        if r.status_code != 200:
+            return "NEUTRAL", f"External AI HTTP {r.status_code}", 0.0
+        data = r.json()
+        content = data.get("choices", [{}])[0].get("message", {}).get("content", "{}")
+        parsed = json.loads(content) if isinstance(content, str) else content
+        sig = str(parsed.get("signal", "NEUTRAL")).upper().strip()
+        if sig not in {"BUY", "SELL", "NEUTRAL"}:
+            sig = "NEUTRAL"
+        conf = float(parsed.get("confidence", 0.0))
+        conf = max(0.0, min(100.0, conf))
+        reason = str(parsed.get("reason", "External AI confirmation"))
+        return sig, reason, conf
+    except Exception as e:
+        return "NEUTRAL", f"External AI error: {e}", 0.0
 
 # --- Sentiment Analysis Functions ---
 def get_gold_news(api_key: str, days_back: int = 7) -> list:
@@ -1496,6 +1624,11 @@ if is_light_theme:
             }
             .kpi-tile .k { color: #4f6487 !important; }
             .kpi-tile .v { color: #0f1e39 !important; }
+            .site-header { background: rgba(255,255,255,0.95) !important; border: 1px solid #d6e0f0 !important; }
+            .site-header .brand { color: #0f1e39 !important; }
+            .site-header .nav { color: #4f6487 !important; }
+            .right-menu { background: #ffffff !important; border: 1px solid #d6e0f0 !important; }
+            .site-footer { color: #4f6487 !important; border-top: 1px solid #d6e0f0 !important; }
         </style>
         """,
         unsafe_allow_html=True,
@@ -1572,6 +1705,36 @@ with st.sidebar.expander(T["backtesting"], expanded=False):
 with st.sidebar.expander("UI/UX", expanded=False):
     enable_audio_alerts = st.checkbox("Enable Audio Alerts", value=True, key="enable_audio_alerts_compact")
     enable_animations = st.checkbox("Enable Animations", value=True, key="enable_animations_compact")
+with st.sidebar.expander(tr("AI Confirmation", "تایید هوش مصنوعی"), expanded=False):
+    enable_ai_confirmation = st.checkbox(tr("Enable AI branch", "فعال‌سازی شاخه هوش مصنوعی"), value=True, key="enable_ai_confirmation")
+    ai_provider = st.selectbox(
+        tr("AI Mode", "حالت هوش مصنوعی"),
+        [tr("Local", "محلی"), tr("External API", "API خارجی")],
+        index=0,
+        key="ai_provider_mode",
+    )
+    ai_api_key = st.text_input(
+        tr("OpenAI API Key", "کلید API اوپن‌ای‌آی"),
+        type="password",
+        key="ai_api_key",
+    )
+    ai_model = st.text_input(
+        tr("AI Model", "مدل هوش مصنوعی"),
+        value="gpt-4o-mini",
+        key="ai_model",
+    )
+with st.sidebar.expander(tr("Signal Engine", "موتور سیگنال"), expanded=False):
+    enforce_mtf_alignment = st.checkbox(tr("Strict higher-TF alignment", "هم‌جهتی سخت‌گیرانه تایم بالاتر"), value=True, key="enforce_mtf_alignment")
+    enable_news_filter = st.checkbox(tr("High-impact news filter", "فیلتر خبرهای مهم"), value=True, key="enable_news_filter")
+    news_filter_minutes = st.slider(tr("News lock window (min)", "بازه قفل خبر (دقیقه)"), 15, 120, 45, 5, key="news_filter_minutes")
+    enable_quality_gate = st.checkbox(tr("Quality gate", "گیت کیفیت"), value=True, key="enable_quality_gate")
+    min_adx_gate = st.slider(tr("Min ADX", "حداقل ADX"), 10, 35, 18, 1, key="min_adx_gate")
+    min_agreement_gate = st.slider(tr("Min method agreement (%)", "حداقل اجماع روش‌ها (%)"), 40, 100, 60, 5, key="min_agreement_gate")
+    enable_adaptive_threshold = st.checkbox(tr("Adaptive consensus threshold", "آستانه اجماع تطبیقی"), value=True, key="enable_adaptive_threshold")
+    st.caption(tr(
+        "Signal basis: 5 methods vote -> AI confirm/veto -> regime + quality gates -> risk guard.",
+        "مبنای سیگنال: رای ۵ روش -> تایید/وتوی AI -> رژیم بازار + گیت کیفیت -> محافظ ریسک."
+    ))
 
 st.sidebar.markdown("---")
 st.sidebar.subheader(tr("Quick Actions", "اقدامات سریع"))
@@ -1928,52 +2091,92 @@ if not df.empty:
         ("bollinger", T["method_bollinger"], bb_sig, bb_reason),
         ("fundamental", T["method_fundamental"], fund_sig, fund_reason),
     ]
+    ai_source = tr("Local", "محلی")
+    ai_mode_label = tr("Off", "خاموش")
+    ai_sig, ai_reason, ai_conf = ai_confirmation_signal(close)
+    if enable_ai_confirmation:
+        ai_mode_label = tr("Local", "محلی")
+    if enable_ai_confirmation and ai_provider == tr("External API", "API خارجی") and ai_api_key.strip():
+        ext_sig, ext_reason, ext_conf = ai_confirmation_external(
+            api_key=ai_api_key.strip(),
+            model=ai_model.strip() or "gpt-4o-mini",
+            close=close,
+            curr_rsi=curr_rsi,
+            curr_macd_hist=curr_macd_hist,
+            curr_adx=curr_adx,
+        )
+        if ext_conf > 0:
+            ai_sig, ai_reason, ai_conf = ext_sig, ext_reason, ext_conf
+            ai_source = tr("External", "خارجی")
+            ai_mode_label = tr("External", "خارجی")
+    method_signals.append(("ai_branch", tr("AI Branch", "شاخه هوش مصنوعی"), ai_sig, f"[{ai_source}] {ai_reason}"))
 
-    # Blend method-signals into primary score with controlled weight.
-    method_weight_map = {
-        "price_action": 10.0,
-        "fib": 8.0,
-        "rsi": 6.0,
-        "macd": 6.0,
-        "bollinger": 5.0,
-        "fundamental": 9.0,
-    }
-    method_long_pts = 0.0
-    method_short_pts = 0.0
-    for method_code, _, method_sig, _ in method_signals:
-        w = method_weight_map.get(method_code, 0.0)
-        if method_sig == "BUY":
-            method_long_pts += w
-        elif method_sig == "SELL":
-            method_short_pts += w
+    # Core signal is driven by 5 analysis methods.
+    core5 = [pa_sig, fib_sig, rsi_sig, macd_sig, bb_sig]
+    buy_votes = sum(1 for s in core5 if s == "BUY")
+    sell_votes = sum(1 for s in core5 if s == "SELL")
+    neutral_votes = 5 - buy_votes - sell_votes
+    agreement_pct = (max(buy_votes, sell_votes) / 5.0) * 100.0
+    perf_ref = (walkforward_data.get("oos_win_rate") if walkforward_data else None)
+    if perf_ref is None and backtest_data:
+        perf_ref = backtest_data.get("win_rate")
+    min_votes = 3
+    if enable_adaptive_threshold and perf_ref is not None:
+        if float(perf_ref) < 48.0:
+            min_votes = 4
+        elif float(perf_ref) > 62.0:
+            min_votes = 3
 
-    method_net = method_long_pts - method_short_pts
-    method_total_weight = sum(method_weight_map.values())
-    method_strength_pct = (abs(method_net) / method_total_weight * 100.0) if method_total_weight > 0 else 0.0
+    signal = "NEUTRAL"
+    if buy_votes == 5:
+        signal = "STRONG BUY"
+    elif sell_votes == 5:
+        signal = "STRONG SELL"
+    elif buy_votes >= min_votes and sell_votes <= 1:
+        signal = "BUY"
+    elif sell_votes >= min_votes and buy_votes <= 1:
+        signal = "SELL"
 
+    # AI branch as an additional confirmation branch.
+    if enable_ai_confirmation and signal != "NEUTRAL":
+        if ("BUY" in signal and ai_sig == "SELL") or ("SELL" in signal and ai_sig == "BUY"):
+            signal = "BUY" if signal == "STRONG BUY" else "SELL" if signal == "STRONG SELL" else "NEUTRAL"
+            bearish_reasons.append(tr("AI branch vetoed direction", "شاخه هوش مصنوعی جهت را رد کرد"))
+        elif ("BUY" in signal and ai_sig == "BUY") or ("SELL" in signal and ai_sig == "SELL"):
+            bullish_reasons.append(tr("AI branch confirms direction", "شاخه هوش مصنوعی جهت را تایید کرد"))
+
+    # Strict higher-timeframe alignment gate.
+    if enforce_mtf_alignment and signal != "NEUTRAL":
+        if ("BUY" in signal and ht_trend == "DOWN") or ("SELL" in signal and ht_trend == "UP"):
+            signal = "NEUTRAL"
+            bearish_reasons.append(tr("Higher-TF alignment blocked signal", "هم‌جهتی تایم بالاتر سیگنال را مسدود کرد"))
+
+    # High-impact news lock window gate.
+    if enable_news_filter and signal != "NEUTRAL":
+        news_block, news_tag = in_high_impact_news_window(economic_events, window_minutes=news_filter_minutes)
+        if news_block:
+            signal = "NEUTRAL"
+            bearish_reasons.append(tr(f"News lock active: {news_tag}", f"قفل خبری فعال: {news_tag}"))
+
+    # Quality gate.
+    atr_pct = (curr_atr / max(curr_price, 1e-9)) * 100.0
+    if enable_quality_gate and signal != "NEUTRAL":
+        quality_ok = (curr_adx >= float(min_adx_gate)) and (agreement_pct >= float(min_agreement_gate)) and (atr_pct >= 0.05)
+        if not quality_ok:
+            signal = "NEUTRAL"
+            bearish_reasons.append(tr("Quality gate failed", "گیت کیفیت رد شد"))
+
+    # Confidence / bias from vote-consensus logic.
+    vote_edge = buy_votes - sell_votes
     atr_baseline_core = safe_last(atr.rolling(50).mean(), default=curr_atr)
     regime_data = detect_market_regime(curr_adx, curr_atr, atr_baseline_core)
+    unanimity_bonus = 10.0 if (buy_votes == 5 or sell_votes == 5) else 4.0 if (buy_votes == 4 or sell_votes == 4) else 0.0
+    ai_bonus = (min(8.0, ai_conf * 0.15) if enable_ai_confirmation and ai_sig != "NEUTRAL" and signal != "NEUTRAL" and ai_sig in signal else 0.0)
+    confidence = min(99.0, max(1.0, agreement_pct + unanimity_bonus + regime_data["conf_bonus"] + ai_bonus))
 
-    blend_ratio = 0.28
-    blended_score = (1.0 - blend_ratio) * net_score + blend_ratio * method_net
-    blended_score *= regime_data["score_mult"]
-    bias_score = max(-100.0, min(100.0, blended_score))
-
-    confidence_base = abs(bias_score) * 0.85 + (5 if curr_adx >= 25 else 0)
-    method_conf_boost = min(8.0, method_strength_pct * 0.08)
-    confidence = min(99.0, max(1.0, confidence_base + method_conf_boost + regime_data["conf_bonus"]))
-
-    if method_net > 0:
-        bullish_reasons.append(tr(
-            f"Method consensus adds +{method_net:.1f} points",
-            f"اجماع روش‌های تحلیلی +{method_net:.1f} امتیاز اضافه کرد"
-        ))
-    elif method_net < 0:
-        bearish_reasons.append(tr(
-            f"Method consensus adds {method_net:.1f} points",
-            f"اجماع روش‌های تحلیلی {method_net:.1f} امتیاز اضافه کرد"
-        ))
-    bullish_reasons.append(tr(f"Regime: {regime_data['name']}", f"رژیم بازار: {regime_data['name']}"))
+    method_net = float(vote_edge)
+    method_total_weight = 5.0
+    bias_score = float(np.clip(vote_edge * 22.0 + (fund_score * 4.0), -100.0, 100.0))
 
     signal_prob = compute_signal_probability(
         bias_score=bias_score,
@@ -1986,16 +2189,6 @@ if not df.empty:
         oos_win_rate=(walkforward_data.get("oos_win_rate") if walkforward_data else None),
         oos_folds=int(walkforward_data.get("folds", 0)) if walkforward_data else 0,
     )
-
-    signal = "NEUTRAL"
-    if bias_score >= 35:
-        signal = "STRONG BUY"
-    elif bias_score >= 12:
-        signal = "BUY"
-    elif bias_score <= -35:
-        signal = "STRONG SELL"
-    elif bias_score <= -12:
-        signal = "SELL"
 
     # Risk-guard layer based on backtest health
     risk_guard_active = False
@@ -2068,6 +2261,15 @@ if not df.empty:
     expected_drawdown_pct = (abs(curr_price - sl) / max(curr_price, 1e-9)) * 100.0
 
     # --- UI Layout ---
+    st.markdown(
+        f"""
+        <div class="site-header">
+            <div class="brand">◉ Golden Terminal</div>
+            <div class="nav">⌂ {tr("Overview", "نمای کلی")} &nbsp;|&nbsp; ☰ {tr("Left Menu", "منوی چپ")} &nbsp;|&nbsp; ⚙ {tr("Right Menu", "منوی راست")}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
     st.title(T["title"])
 
     signal_display = signal
@@ -2110,6 +2312,7 @@ if not df.empty:
             <span class="k">{T["confidence"]}:</span><span class="v"><strong>{confidence:.0f}%</strong></span>
             <span class="k">{tr("Win Prob", "احتمال موفقیت")}:</span><span class="v"><strong>{signal_prob['win_prob']:.1f}%</strong></span>
             <span class="k">{tr("Regime", "رژیم")}:</span><span class="v"><strong>{regime_data['name']}</strong></span>
+            <span class="k">{tr("AI", "هوش مصنوعی")}:</span><span class="v"><strong>{ai_sig} ({ai_mode_label})</strong></span>
             <span class="k">{T["last_update"]}:</span><span class="v">{pd.Timestamp.utcnow().strftime('%H:%M:%S')} UTC</span>
         </div>
         """,
@@ -2211,8 +2414,17 @@ if not df.empty:
         st.write(T["rr_fmt"].format(rr=rr_ratio))
         st.write(f"{T['corr_dxy']}: {correlation:.2f}")
 
+    st.markdown("<div class='right-menu'><strong>⚙ " + tr("Right Menu", "منوی راست") + "</strong></div>", unsafe_allow_html=True)
+    rm1, rm2, rm3, rm4, rm5, rm6 = st.columns(6)
+    show_sentiment_block = rm1.checkbox(tr("Sentiment", "سنتیمنت"), value=False, key="show_sentiment_block")
+    show_macro_block = rm2.checkbox(tr("Macro", "ماکرو"), value=False, key="show_macro_block")
+    show_backtest_block = rm3.checkbox(tr("Backtest", "بک‌تست"), value=False, key="show_backtest_block")
+    show_corr_block = rm4.checkbox(tr("Correlation", "همبستگی"), value=False, key="show_corr_block")
+    show_journal_block = rm5.checkbox(tr("Journal", "ژورنال"), value=False, key="show_journal_block")
+    show_logic_block = rm6.checkbox(tr("Logic", "منطق"), value=False, key="show_logic_block")
+
     # --- Sentiment Analysis Display ---
-    if sentiment_data:
+    if sentiment_data and show_sentiment_block:
         sentiment_color = "#21c77a" if sentiment_data['overall'] == 'bullish' else "#ff5a7a" if sentiment_data['overall'] == 'bearish' else "#8a96ad"
         sentiment_display = T[sentiment_data['overall']] if sentiment_data['overall'] in T else sentiment_data['overall']
         
@@ -2239,9 +2451,10 @@ if not df.empty:
 
     # --- Macro Dashboard Display ---
     real_yield_color = "#21c77a" if real_yields_data['real_yield'] > 0 else "#ff5a7a" if real_yields_data['real_yield'] < 0 else "#8a96ad"
-    with st.expander(tr("Macro & Fundamental", "ماکرو و فاندامنتال"), expanded=False):
-        st.markdown(f"<div class='app-card'><h4 style='margin:0;'>{T['macro_dashboard']}</h4></div>", unsafe_allow_html=True)
-        st.markdown(f"""
+    if show_macro_block:
+        with st.expander(tr("Macro & Fundamental", "????? ? ??????????"), expanded=False):
+            st.markdown(f"<div class='app-card'><h4 style='margin:0;'>{T['macro_dashboard']}</h4></div>", unsafe_allow_html=True)
+            st.markdown(f"""
     <div class='app-card' style='border-left: 5px solid {real_yield_color}; margin-bottom: 15px;'>
         <h5 style='margin:0; color: var(--txt);'>{T['real_yields']}</h5>
         <div style='display: flex; justify-content: space-between; align-items: center; margin-top: 10px;'>
@@ -2257,23 +2470,23 @@ if not df.empty:
             </div>
         </div>
     </div>
-        """, unsafe_allow_html=True)
+            """, unsafe_allow_html=True)
 
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.metric(T['current_rate'], f"{fed_watch_data['current_rate']:.2f}%")
-        with col2:
-            st.metric(T['prob_hike'], f"{fed_watch_data['prob_hike']:.1%}")
-        with col3:
-            st.metric(T['prob_cut'], f"{fed_watch_data['prob_cut']:.1%}")
-        with col4:
-            st.metric(T['prob_hold'], f"{fed_watch_data['prob_hold']:.1%}")
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric(T['current_rate'], f"{fed_watch_data['current_rate']:.2f}%")
+            with col2:
+                st.metric(T['prob_hike'], f"{fed_watch_data['prob_hike']:.1%}")
+            with col3:
+                st.metric(T['prob_cut'], f"{fed_watch_data['prob_cut']:.1%}")
+            with col4:
+                st.metric(T['prob_hold'], f"{fed_watch_data['prob_hold']:.1%}")
 
-        st.markdown(f"<div class='app-card'><h5 style='margin:0;'>{T['economic_calendar']}</h5></div>", unsafe_allow_html=True)
-        if economic_events:
-            for event in economic_events:
-                impact_color = "#ff5a7a" if event['impact'] == 'High' else "#ffa500" if event['impact'] == 'Medium' else "#8a96ad"
-                st.markdown(f"""
+            st.markdown(f"<div class='app-card'><h5 style='margin:0;'>{T['economic_calendar']}</h5></div>", unsafe_allow_html=True)
+            if economic_events:
+                for event in economic_events:
+                    impact_color = "#ff5a7a" if event['impact'] == 'High' else "#ffa500" if event['impact'] == 'Medium' else "#8a96ad"
+                    st.markdown(f"""
                 <div class='app-card' style='border-left: 3px solid {impact_color}; margin-bottom: 8px; padding: 10px;'>
                     <div style='display: flex; justify-content: space-between; align-items: center;'>
                         <div>
@@ -2289,7 +2502,7 @@ if not df.empty:
                 """, unsafe_allow_html=True)
 
     # --- Backtesting Results Display ---
-    if backtest_data:
+    if backtest_data and show_backtest_block:
         with st.expander(T["backtest_results"], expanded=False):
             st.markdown(f"<div class='app-card'><h4 style='margin:0;'>{T['backtest_results']}</h4></div>", unsafe_allow_html=True)
             
@@ -2336,7 +2549,7 @@ if not df.empty:
                 st.markdown(display_df.to_html(escape=False, index=False), unsafe_allow_html=True)
 
     # --- Advanced Correlation Analysis Display ---
-    if correlation_data:
+    if correlation_data and show_corr_block:
         with st.expander(T["correlation_matrix"], expanded=False):
             st.markdown(f"<div class='app-card'><h4 style='margin:0;'>{T['correlation_matrix']}</h4></div>", unsafe_allow_html=True)
             
@@ -2363,7 +2576,7 @@ if not df.empty:
             st.markdown(correlation_df.to_html(escape=False, index=False), unsafe_allow_html=True)
 
     journal_df = load_signal_journal()
-    if not journal_df.empty:
+    if not journal_df.empty and show_journal_block:
         jf = journal_df[(journal_df["asset"] == asset_name) & (journal_df["timeframe"] == timeframe)].copy()
         if not jf.empty:
             with st.expander(tr("Signal Performance Journal", "ژورنال عملکرد سیگنال"), expanded=False):
@@ -2543,18 +2756,24 @@ if not df.empty:
                 use_container_width=True,
             )
 
-    with st.expander(T["logic"]):
-        st.write(f"{T['bullish_factors']}:")
-        for reason in bullish_reasons[:8]:
-            st.write(f"- {reason}")
-        st.write(f"{T['bearish_factors']}:")
-        for reason in bearish_reasons[:8]:
-            st.write(f"- {reason}")
-        st.write(f"- {tr('Higher TF', 'تایم‌فریم بالاتر')}: {higher_tf} | {T['trend']}: {ht_trend}")
-        st.write(f"- {tr('DXY 5-bar return', 'بازده دلار 5 کندل')}: {dxy_ret:.2f}% | {tr('US10Y 5-bar return', 'بازده 10Y 5 کندل')}: {us10y_ret:.2f}%")
-        st.write(f"- {tr('Silver 5-bar return', 'بازده نقره 5 کندل')}: {silver_ret:.2f}% | {tr('Copper 5-bar return', 'بازده مس 5 کندل')}: {copper_ret:.2f}%")
+    if show_logic_block:
+        with st.expander(T["logic"]):
+            st.write(f"{T['bullish_factors']}:")
+            for reason in bullish_reasons[:8]:
+                st.write(f"- {reason}")
+            st.write(f"{T['bearish_factors']}:")
+            for reason in bearish_reasons[:8]:
+                st.write(f"- {reason}")
+            st.write(f"- {tr('Higher TF', 'تایم‌فریم بالاتر')}: {higher_tf} | {T['trend']}: {ht_trend}")
+            st.write(f"- {tr('DXY 5-bar return', 'بازده دلار ۵ کندل')}: {dxy_ret:.2f}% | {tr('US10Y 5-bar return', 'بازده 10Y پنج کندل')}: {us10y_ret:.2f}%")
+            st.write(f"- {tr('Silver 5-bar return', 'بازده نقره ۵ کندل')}: {silver_ret:.2f}% | {tr('Copper 5-bar return', 'بازده مس ۵ کندل')}: {copper_ret:.2f}%")
 
     st.caption(f"{T['last_update']}: {pd.Timestamp.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC")
+    st.markdown(
+        f"<div class='site-footer'>© 2026 Golden Terminal • {tr('Clean layout mode', 'چیدمان خلوت فعال')} • AI {ai_sig} ({ai_mode_label})</div>",
+        unsafe_allow_html=True,
+    )
+
 
     if auto_refresh:
         try:
