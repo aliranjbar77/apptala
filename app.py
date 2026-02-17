@@ -429,10 +429,24 @@ def get_live_price(symbol: str) -> float | None:
     return None
 
 def get_fresh_quote(symbols: list[str]) -> tuple[float | None, float, str | None]:
-    """Return freshest quote; prefer fast_info tick, fallback to 1m candles."""
+    """Return freshest quote; prefer 1m candle (stable), fallback to fast_info."""
     best = None
     for sym in symbols:
-        # Fast tick-like quote (updates faster than 1m candle close).
+        # Primary source: 1m candle feed (more stable for Yahoo symbols).
+        q = safe_yf_download(sym, period="1d", interval="1m", retries=2)
+        if not q.empty and "Close" in q.columns:
+            close = pd.to_numeric(q["Close"], errors="coerce").dropna()
+            if not close.empty:
+                ts = pd.to_datetime(close.index[-1], errors="coerce")
+                if not pd.isna(ts):
+                    price = float(close.iloc[-1])
+                    delta = float(close.iloc[-1] - close.iloc[-2]) if len(close) >= 2 else 0.0
+                    item = (ts, price, delta, f"{sym}:1m")
+                    if best is None or item[0] > best[0]:
+                        best = item
+                    continue
+
+        # Fallback: fast_info when 1m is unavailable.
         try:
             ticker = yf.Ticker(sym)
             fast_info = getattr(ticker, "fast_info", None)
@@ -441,34 +455,12 @@ def get_fresh_quote(symbols: list[str]) -> tuple[float | None, float, str | None
                 if fast_last is not None:
                     price = float(fast_last)
                     if price > 0:
-                        q = safe_yf_download(sym, period="1d", interval="1m", retries=1)
-                        delta = 0.0
-                        if not q.empty and "Close" in q.columns:
-                            close = pd.to_numeric(q["Close"], errors="coerce").dropna()
-                            if len(close) >= 1:
-                                delta = price - float(close.iloc[-1])
-                        ts = pd.Timestamp.utcnow()
-                        item = (ts, price, delta, f"{sym}:fast")
+                        item = (pd.Timestamp.utcnow(), price, 0.0, f"{sym}:fast")
                         if best is None or item[0] > best[0]:
                             best = item
         except Exception:
             pass
 
-        # Candle fallback.
-        q = safe_yf_download(sym, period="1d", interval="1m", retries=2)
-        if q.empty or "Close" not in q.columns:
-            continue
-        close = pd.to_numeric(q["Close"], errors="coerce").dropna()
-        if close.empty:
-            continue
-        ts = pd.to_datetime(close.index[-1], errors="coerce")
-        if pd.isna(ts):
-            continue
-        price = float(close.iloc[-1])
-        delta = float(close.iloc[-1] - close.iloc[-2]) if len(close) >= 2 else 0.0
-        item = (ts, price, delta, f"{sym}:1m")
-        if best is None or item[0] > best[0]:
-            best = item
     if best is None:
         return None, 0.0, None
     return best[1], best[2], best[3]
