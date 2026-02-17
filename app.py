@@ -14,6 +14,7 @@ from datetime import datetime, timedelta
 import re
 import time
 from pathlib import Path
+from zoneinfo import ZoneInfo
 import os
 
 # --- Audio Alert Function ---
@@ -437,6 +438,13 @@ def get_data(symbol: str, period: str, interval: str):
     if isinstance(dxy.columns, pd.MultiIndex):
         dxy.columns = dxy.columns.get_level_values(0)
     return data, dxy
+
+
+def now_iran_str(fmt: str = "%Y-%m-%d %H:%M:%S") -> str:
+    try:
+        return datetime.now(ZoneInfo("Asia/Tehran")).strftime(fmt)
+    except Exception:
+        return datetime.utcnow().strftime(fmt) + " UTC"
 
 
 def get_market_context(period: str, interval: str):
@@ -1690,7 +1698,7 @@ contract_size = st.sidebar.number_input(
 st.sidebar.markdown("---")
 st.sidebar.subheader(T["live_update"])
 auto_refresh = st.sidebar.checkbox(T["auto_refresh"], value=True)
-refresh_sec = st.sidebar.slider(T["refresh_interval"], 5, 120, 30, 5)
+refresh_sec = st.sidebar.slider(T["refresh_interval"], 2, 120, 8, 1)
 live_window = st.sidebar.slider(T["live_window"], 50, 400, 150, 10)
 chart_mode = st.sidebar.selectbox(T["chart_mode"], [T["chart_plotly"], T["chart_tv"]], index=1)
 
@@ -1819,22 +1827,6 @@ if not df.empty:
     df = calculate_patterns(df)
 
     close = df["Close"].squeeze()
-    high = df["High"].squeeze()
-    low = df["Low"].squeeze()
-    volume = df["Volume"].squeeze() if "Volume" in df.columns else pd.Series(index=df.index, dtype=float)
-
-    rsi = RSIIndicator(close).rsi()
-    ema50 = EMAIndicator(close, window=50).ema_indicator()
-    ema200 = EMAIndicator(close, window=200).ema_indicator()
-    ema20 = EMAIndicator(close, window=20).ema_indicator()
-    macd_line = MACD(close).macd()
-    macd_signal = MACD(close).macd_signal()
-    macd_hist = MACD(close).macd_diff()
-    adx = ADXIndicator(high, low, close).adx()
-    atr = AverageTrueRange(high, low, close).average_true_range()
-    bb = BollingerBands(close)
-    obv = calc_obv(close, volume)
-
     candle_close_price = float(close.iloc[-1])
     price_symbol = asset_name
     if chart_mode == T["chart_tv"]:
@@ -1856,6 +1848,34 @@ if not df.empty:
             live_price = get_live_price(asset_name)
         curr_price = live_price if live_price is not None else candle_close_price
         price_delta_live = curr_price - candle_close_price
+
+    # Inject latest quote into active candle so indicators/signals run on live price.
+    if len(df.index) > 0 and all(col in df.columns for col in ["Open", "High", "Low", "Close"]):
+        last_idx = df.index[-1]
+        last_high = float(df.at[last_idx, "High"])
+        last_low = float(df.at[last_idx, "Low"])
+        df.at[last_idx, "Close"] = curr_price
+        df.at[last_idx, "High"] = max(last_high, curr_price)
+        df.at[last_idx, "Low"] = min(last_low, curr_price)
+        df = calculate_patterns(df)
+
+    close = df["Close"].squeeze()
+    high = df["High"].squeeze()
+    low = df["Low"].squeeze()
+    volume = df["Volume"].squeeze() if "Volume" in df.columns else pd.Series(index=df.index, dtype=float)
+
+    rsi = RSIIndicator(close).rsi()
+    ema50 = EMAIndicator(close, window=50).ema_indicator()
+    ema200 = EMAIndicator(close, window=200).ema_indicator()
+    ema20 = EMAIndicator(close, window=20).ema_indicator()
+    macd_line = MACD(close).macd()
+    macd_signal = MACD(close).macd_signal()
+    macd_hist = MACD(close).macd_diff()
+    adx = ADXIndicator(high, low, close).adx()
+    atr = AverageTrueRange(high, low, close).average_true_range()
+    bb = BollingerBands(close)
+    obv = calc_obv(close, volume)
+
     curr_rsi = float(rsi.iloc[-1])
     curr_atr = float(atr.iloc[-1])
     curr_adx = safe_last(adx)
@@ -2335,7 +2355,7 @@ if not df.empty:
             <span class="k">{tr("Win Prob", "احتمال موفقیت")}:</span><span class="v"><strong>{signal_prob['win_prob']:.1f}%</strong></span>
             <span class="k">{tr("Regime", "رژیم")}:</span><span class="v"><strong>{regime_data['name']}</strong></span>
             <span class="k">{tr("AI", "??? ??????")}:</span><span class="v"><span class="{ai_badge_class}">{ai_sig} ({ai_mode_label})</span></span>
-            <span class="k">{T["last_update"]}:</span><span class="v">{pd.Timestamp.utcnow().strftime('%H:%M:%S')} UTC</span>
+            <span class="k">{T["last_update"]}:</span><span class="v">{now_iran_str('%H:%M:%S')} IRT</span>
         </div>
         """,
         unsafe_allow_html=True,
@@ -2680,6 +2700,7 @@ if not df.empty:
         tv_symbol = tv_symbol_map.get(asset_name, "OANDA:XAUUSD")
         tv_interval = tv_interval_map.get(timeframe, "60")
         tv_theme = "dark"
+        tv_locale = "fa" if lang == "fa" else "en"
         tv_widget = f"""
         <div class="tradingview-widget-container">
           <div id="tradingview_chart"></div>
@@ -2690,10 +2711,10 @@ if not df.empty:
               "height": 760,
               "symbol": "{tv_symbol}",
               "interval": "{tv_interval}",
-              "timezone": "Etc/UTC",
+              "timezone": "Asia/Tehran",
               "theme": "{tv_theme}",
               "style": "1",
-              "locale": "en",
+              "locale": "{tv_locale}",
               "toolbar_bg": "#0e1117",
               "enable_publishing": false,
               "allow_symbol_change": false,
@@ -2790,7 +2811,7 @@ if not df.empty:
             st.write(f"- {tr('DXY 5-bar return', 'بازده دلار ۵ کندل')}: {dxy_ret:.2f}% | {tr('US10Y 5-bar return', 'بازده 10Y پنج کندل')}: {us10y_ret:.2f}%")
             st.write(f"- {tr('Silver 5-bar return', 'بازده نقره ۵ کندل')}: {silver_ret:.2f}% | {tr('Copper 5-bar return', 'بازده مس ۵ کندل')}: {copper_ret:.2f}%")
 
-    st.caption(f"{T['last_update']}: {pd.Timestamp.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC")
+    st.caption(f"{T['last_update']}: {now_iran_str('%Y-%m-%d %H:%M:%S')} IRT")
     st.markdown(
         f"<div class='site-footer'>© 2026 Golden Terminal • {tr('Clean layout mode', 'چیدمان خلوت فعال')} • AI {ai_sig} ({ai_mode_label})</div>",
         unsafe_allow_html=True,
