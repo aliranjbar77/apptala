@@ -1,0 +1,2 @@
+timestamp,asset,timeframe,signal,bias_score,confidence,price,win_prob,regime
+2026-02-17 09:58:25,GC=F,1h,NEUTRAL,-52.0,44.0,4935.7998,78.44,TREND
