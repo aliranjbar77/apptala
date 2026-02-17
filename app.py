@@ -14,6 +14,7 @@ from datetime import datetime, timedelta
 import re
 import time
 from pathlib import Path
+import os
 
 # --- Audio Alert Function ---
 def play_alert_sound(alert_type: str = "signal"):
@@ -205,6 +206,8 @@ st.markdown(
         .badge-buy { background: rgba(33,199,122,0.18); color: #8df1be; }
         .badge-sell { background: rgba(255,90,122,0.2); color: #ffc1cf; }
         .badge-neutral { background: rgba(138,150,173,0.22); color: #dde5f6; }
+        .badge-ai-external { background: rgba(78,138,255,0.24); color: #d9e7ff; }
+        .badge-ai-neutral { background: rgba(138,150,173,0.22); color: #dde5f6; }
         .stButton > button {
             background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%);
             border: none;
@@ -701,6 +704,15 @@ def ai_confirmation_external(
         return sig, reason, conf
     except Exception as e:
         return "NEUTRAL", f"External AI error: {e}", 0.0
+
+
+def resolve_ai_api_key() -> str:
+    """Resolve API key from Streamlit secrets or env vars for hands-free mode."""
+    try:
+        key_from_secrets = st.secrets.get("OPENAI_API_KEY", "")
+    except Exception:
+        key_from_secrets = ""
+    return str(key_from_secrets or os.getenv("OPENAI_API_KEY", "")).strip()
 
 # --- Sentiment Analysis Functions ---
 def get_gold_news(api_key: str, days_back: int = 7) -> list:
@@ -1706,22 +1718,19 @@ with st.sidebar.expander("UI/UX", expanded=False):
     enable_audio_alerts = st.checkbox("Enable Audio Alerts", value=True, key="enable_audio_alerts_compact")
     enable_animations = st.checkbox("Enable Animations", value=True, key="enable_animations_compact")
 with st.sidebar.expander(tr("AI Confirmation", "تایید هوش مصنوعی"), expanded=False):
-    enable_ai_confirmation = st.checkbox(tr("Enable AI branch", "فعال‌سازی شاخه هوش مصنوعی"), value=True, key="enable_ai_confirmation")
-    ai_provider = st.selectbox(
-        tr("AI Mode", "حالت هوش مصنوعی"),
-        [tr("Local", "محلی"), tr("External API", "API خارجی")],
-        index=0,
-        key="ai_provider_mode",
-    )
-    ai_api_key = st.text_input(
-        tr("OpenAI API Key", "کلید API اوپن‌ای‌آی"),
-        type="password",
-        key="ai_api_key",
-    )
+    enable_ai_confirmation = True
+    ai_api_key = resolve_ai_api_key()
+    ai_provider = tr("External API", "API خارجی") if ai_api_key else tr("Local", "محلی")
     ai_model = st.text_input(
         tr("AI Model", "مدل هوش مصنوعی"),
         value="gpt-4o-mini",
         key="ai_model",
+    )
+    st.caption(
+        tr(
+            f"Auto mode: {'External API' if ai_api_key else 'Local'} (no manual key input needed)",
+            f"حالت خودکار: {'API خارجی' if ai_api_key else 'محلی'} (نیازی به وارد کردن دستی کلید نیست)"
+        )
     )
 with st.sidebar.expander(tr("Signal Engine", "موتور سیگنال"), expanded=False):
     enforce_mtf_alignment = st.checkbox(tr("Strict higher-TF alignment", "هم‌جهتی سخت‌گیرانه تایم بالاتر"), value=True, key="enforce_mtf_alignment")
@@ -2091,12 +2100,16 @@ if not df.empty:
         ("bollinger", T["method_bollinger"], bb_sig, bb_reason),
         ("fundamental", T["method_fundamental"], fund_sig, fund_reason),
     ]
-    ai_source = tr("Local", "محلی")
-    ai_mode_label = tr("Off", "خاموش")
-    ai_sig, ai_reason, ai_conf = ai_confirmation_signal(close)
-    if enable_ai_confirmation:
-        ai_mode_label = tr("Local", "محلی")
-    if enable_ai_confirmation and ai_provider == tr("External API", "API خارجی") and ai_api_key.strip():
+    ai_source = tr("Neutral", "????")
+    ai_mode_label = tr("Neutral", "????")
+    ai_sig = "NEUTRAL"
+    ai_conf = 0.0
+    ai_reason = tr(
+        "No external AI key; AI branch stays neutral",
+        "???? AI ????? ???? ???? ???? ??? ?????? ???? ?? ????",
+    )
+    has_external_ai = bool(ai_api_key.strip()) and ai_provider == tr("External API", "API ?????")
+    if enable_ai_confirmation and has_external_ai:
         ext_sig, ext_reason, ext_conf = ai_confirmation_external(
             api_key=ai_api_key.strip(),
             model=ai_model.strip() or "gpt-4o-mini",
@@ -2107,9 +2120,14 @@ if not df.empty:
         )
         if ext_conf > 0:
             ai_sig, ai_reason, ai_conf = ext_sig, ext_reason, ext_conf
-            ai_source = tr("External", "خارجی")
-            ai_mode_label = tr("External", "خارجی")
-    method_signals.append(("ai_branch", tr("AI Branch", "شاخه هوش مصنوعی"), ai_sig, f"[{ai_source}] {ai_reason}"))
+            ai_source = tr("External", "?????")
+            ai_mode_label = tr("External", "?????")
+        else:
+            ai_reason = tr(
+                "External AI unavailable; AI branch stayed neutral",
+                "AI ????? ?? ????? ????? ???? ??? ?????? ???? ????",
+            )
+    method_signals.append(("ai_branch", tr("AI Branch", "???? ??? ??????"), ai_sig, f"[{ai_source}] {ai_reason}"))
 
     # Core signal is driven by 5 analysis methods.
     core5 = [pa_sig, fib_sig, rsi_sig, macd_sig, bb_sig]
@@ -2304,6 +2322,10 @@ if not df.empty:
     elif signal in ["SELL", "STRONG SELL"]:
         badge_class = "badge-sell"
 
+    ai_badge_class = "badge-ai-neutral"
+    if ai_sig in ["BUY", "SELL"] and "External" in str(ai_mode_label):
+        ai_badge_class = "badge-ai-external"
+
     st.markdown(
         f"""
         <div class="top-status">
@@ -2312,7 +2334,7 @@ if not df.empty:
             <span class="k">{T["confidence"]}:</span><span class="v"><strong>{confidence:.0f}%</strong></span>
             <span class="k">{tr("Win Prob", "احتمال موفقیت")}:</span><span class="v"><strong>{signal_prob['win_prob']:.1f}%</strong></span>
             <span class="k">{tr("Regime", "رژیم")}:</span><span class="v"><strong>{regime_data['name']}</strong></span>
-            <span class="k">{tr("AI", "هوش مصنوعی")}:</span><span class="v"><strong>{ai_sig} ({ai_mode_label})</strong></span>
+            <span class="k">{tr("AI", "??? ??????")}:</span><span class="v"><span class="{ai_badge_class}">{ai_sig} ({ai_mode_label})</span></span>
             <span class="k">{T["last_update"]}:</span><span class="v">{pd.Timestamp.utcnow().strftime('%H:%M:%S')} UTC</span>
         </div>
         """,
