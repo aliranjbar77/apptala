@@ -428,6 +428,29 @@ def get_live_price(symbol: str) -> float | None:
         pass
     return None
 
+def get_fresh_quote(symbols: list[str]) -> tuple[float | None, float, str | None]:
+    """Return the freshest available 1m quote among candidate symbols."""
+    best = None
+    for sym in symbols:
+        q = safe_yf_download(sym, period="1d", interval="1m", retries=2)
+        if q.empty or "Close" not in q.columns:
+            continue
+        close = pd.to_numeric(q["Close"], errors="coerce").dropna()
+        if close.empty:
+            continue
+        ts = pd.to_datetime(close.index[-1], errors="coerce")
+        if pd.isna(ts):
+            continue
+        price = float(close.iloc[-1])
+        delta = float(close.iloc[-1] - close.iloc[-2]) if len(close) >= 2 else 0.0
+        item = (ts, price, delta, sym)
+        if best is None or item[0] > best[0]:
+            best = item
+    if best is None:
+        return None, 0.0, None
+    return best[1], best[2], best[3]
+
+
 def get_data(symbol: str, period: str, interval: str):
     data = safe_yf_download(symbol, period=period, interval=interval)
     dxy = safe_yf_download("DX-Y.NYB", period=period, interval=interval)
@@ -1827,20 +1850,14 @@ if not df.empty:
 
     close = df["Close"].squeeze()
     candle_close_price = float(close.iloc[-1])
+    # Keep price source on same instrument as selected asset.
     price_symbol = asset_name
-    if chart_mode == T["chart_tv"]:
-        # Keep box-price source aligned with TradingView spot symbols.
-        tv_price_map = {
-            "GC=F": "XAUUSD=X",
-            "SI=F": "XAGUSD=X",
-        }
-        price_symbol = tv_price_map.get(asset_name, asset_name)
 
-    quote_df = safe_yf_download(price_symbol, period="1d", interval="1m", retries=2)
-    if not quote_df.empty and "Close" in quote_df.columns:
-        quote_close = quote_df["Close"].dropna()
-        curr_price = float(quote_close.iloc[-1])
-        price_delta_live = float(quote_close.iloc[-1] - quote_close.iloc[-2]) if len(quote_close) >= 2 else 0.0
+    quote_candidates = [asset_name] if chart_mode == T["chart_tv"] else ([price_symbol] if price_symbol == asset_name else [price_symbol, asset_name])
+    quote_price, quote_delta, quote_source = get_fresh_quote(quote_candidates)
+    if quote_price is not None:
+        curr_price = float(quote_price)
+        price_delta_live = float(quote_delta)
     else:
         live_price = get_live_price(price_symbol)
         if live_price is None and price_symbol != asset_name:
@@ -2153,8 +2170,8 @@ if not df.empty:
             )
     method_signals.append(("ai_branch", tr("AI Branch", "AI Branch"), ai_sig, f"[{ai_source}] {ai_reason}"))
 
-    # Core signal is driven by 3 high-reliability methods + trend tracking.
-    core_methods = [pa_sig, macd_sig, bb_sig, trend_sig]
+    # Core signal is driven by active methods and recalculated on every refresh.
+    core_methods = [pa_sig, macd_sig, bb_sig, trend_sig, fund_sig]
     method_count = len(core_methods)
     buy_votes = sum(1 for s in core_methods if s == "BUY")
     sell_votes = sum(1 for s in core_methods if s == "SELL")
@@ -2170,21 +2187,19 @@ if not df.empty:
 
     signal = "NEUTRAL"
     if buy_votes == method_count:
-        signal = "STRONG BUY"
+        signal = "VERY STRONG BUY"
     elif sell_votes == method_count:
+        signal = "VERY STRONG SELL"
+    elif buy_votes >= max(method_count - 1, min_votes) and sell_votes == 0:
+        signal = "STRONG BUY"
+    elif sell_votes >= max(method_count - 1, min_votes) and buy_votes == 0:
         signal = "STRONG SELL"
-    elif buy_votes >= min_votes and sell_votes <= 1:
+    elif buy_votes >= min_votes and buy_votes > sell_votes:
         signal = "BUY"
-    elif sell_votes >= min_votes and buy_votes <= 1:
+    elif sell_votes >= min_votes and sell_votes > buy_votes:
         signal = "SELL"
 
-    # AI branch as an additional confirmation branch.
-    if enable_ai_confirmation and signal != "NEUTRAL":
-        if ("BUY" in signal and ai_sig == "SELL") or ("SELL" in signal and ai_sig == "BUY"):
-            signal = "BUY" if signal == "STRONG BUY" else "SELL" if signal == "STRONG SELL" else "NEUTRAL"
-            bearish_reasons.append(tr("AI branch vetoed direction", "شاخه هوش مصنوعی جهت را رد کرد"))
-        elif ("BUY" in signal and ai_sig == "BUY") or ("SELL" in signal and ai_sig == "SELL"):
-            bullish_reasons.append(tr("AI branch confirms direction", "شاخه هوش مصنوعی جهت را تایید کرد"))
+    # AI branch is informational only (no impact on main signal).
 
     # Strict higher-timeframe alignment gate.
     if enforce_mtf_alignment and signal != "NEUTRAL":
@@ -2213,7 +2228,7 @@ if not df.empty:
     regime_data = detect_market_regime(curr_adx, curr_atr, atr_baseline_core)
     max_votes = max(buy_votes, sell_votes)
     unanimity_bonus = 10.0 if max_votes == method_count else 4.0 if max_votes == max(method_count - 1, 1) else 0.0
-    ai_bonus = (min(8.0, ai_conf * 0.15) if enable_ai_confirmation and ai_sig != "NEUTRAL" and signal != "NEUTRAL" and ai_sig in signal else 0.0)
+    ai_bonus = 0.0
     confidence = min(99.0, max(1.0, agreement_pct + unanimity_bonus + regime_data["conf_bonus"] + ai_bonus))
 
     method_net = float(vote_edge)
@@ -2266,15 +2281,23 @@ if not df.empty:
         signal_prob["loss_prob"] = 100.0 - signal_prob["win_prob"]
 
     # --- Risk Management ---
-    is_long = signal in ["BUY", "STRONG BUY"]
-    sl = curr_price - (atr_mult * curr_atr) if is_long else curr_price + (atr_mult * curr_atr)
-    tp = curr_price + (rr_ratio * atr_mult * curr_atr) if is_long else curr_price - (rr_ratio * atr_mult * curr_atr)
-    tp2 = curr_price + ((rr_ratio + 1.0) * atr_mult * curr_atr) if is_long else curr_price - ((rr_ratio + 1.0) * atr_mult * curr_atr)
-    entry_low = curr_price - (0.25 * curr_atr)
-    entry_high = curr_price + (0.25 * curr_atr)
+    is_long = signal in ["BUY", "STRONG BUY", "VERY STRONG BUY"]
+    has_trade_signal = signal in ["BUY", "STRONG BUY", "VERY STRONG BUY", "SELL", "STRONG SELL", "VERY STRONG SELL"]
+    if has_trade_signal:
+        sl = curr_price - (atr_mult * curr_atr) if is_long else curr_price + (atr_mult * curr_atr)
+        tp = curr_price + (rr_ratio * atr_mult * curr_atr) if is_long else curr_price - (rr_ratio * atr_mult * curr_atr)
+        tp2 = curr_price + ((rr_ratio + 1.0) * atr_mult * curr_atr) if is_long else curr_price - ((rr_ratio + 1.0) * atr_mult * curr_atr)
+        entry_low = curr_price - (0.25 * curr_atr)
+        entry_high = curr_price + (0.25 * curr_atr)
+    else:
+        sl = 0.0
+        tp = 0.0
+        tp2 = 0.0
+        entry_low = 0.0
+        entry_high = 0.0
 
     risk_amt = acc_balance * (risk_pct / 100.0)
-    risk_per_unit = abs(curr_price - sl) * contract_size
+    risk_per_unit = abs(curr_price - sl) * contract_size if has_trade_signal else 0.0
     lot_size = (risk_amt / risk_per_unit) if risk_per_unit != 0 else 0
 
     # --- Smart Position Sizing ---
@@ -2299,8 +2322,9 @@ if not df.empty:
                 st.write(f"{T['sentiment_adjustment']}: {smart_sizing_data['sentiment_factor']:.2f}x")
             st.write(f"{T['risk_multiplier']}: {smart_sizing_data['risk_multiplier']:.2f}x")
 
-    expected_move_pct = (curr_atr / max(curr_price, 1e-9)) * 100.0 * (1.4 if signal.startswith("STRONG") else 1.0)
-    expected_drawdown_pct = (abs(curr_price - sl) / max(curr_price, 1e-9)) * 100.0
+    strength_mult = 1.8 if signal.startswith("VERY STRONG") else 1.4 if signal.startswith("STRONG") else 1.0
+    expected_move_pct = (curr_atr / max(curr_price, 1e-9)) * 100.0 * strength_mult
+    expected_drawdown_pct = (abs(curr_price - sl) / max(curr_price, 1e-9)) * 100.0 if has_trade_signal else 0.0
 
     # --- UI Layout ---
     st.markdown(
@@ -2315,7 +2339,13 @@ if not df.empty:
     st.title(T["title"])
 
     signal_display = signal
-    if signal == "STRONG BUY":
+    price_text = f"${curr_price:,.3f}" if chart_mode == T["chart_tv"] else f"${curr_price:,.2f}"
+    price_delta_text = f"{price_delta_live:+.3f}" if chart_mode == T["chart_tv"] else f"{price_delta_live:+.2f}"
+    if signal == "VERY STRONG BUY":
+        signal_display = tr("VERY STRONG BUY", "VERY STRONG BUY")
+    elif signal == "VERY STRONG SELL":
+        signal_display = tr("VERY STRONG SELL", "VERY STRONG SELL")
+    elif signal == "STRONG BUY":
         signal_display = T["sig_strong_buy"]
     elif signal == "STRONG SELL":
         signal_display = T["sig_strong_sell"]
@@ -2341,9 +2371,9 @@ if not df.empty:
     )
 
     badge_class = "badge-neutral"
-    if signal in ["BUY", "STRONG BUY"]:
+    if signal in ["BUY", "STRONG BUY", "VERY STRONG BUY"]:
         badge_class = "badge-buy"
-    elif signal in ["SELL", "STRONG SELL"]:
+    elif signal in ["SELL", "STRONG SELL", "VERY STRONG SELL"]:
         badge_class = "badge-sell"
 
     ai_badge_class = "badge-ai-neutral"
@@ -2358,8 +2388,17 @@ if not df.empty:
             <span class="k">{T["confidence"]}:</span><span class="v"><strong>{confidence:.0f}%</strong></span>
             <span class="k">{tr("Win Prob", "احتمال موفقیت")}:</span><span class="v"><strong>{signal_prob['win_prob']:.1f}%</strong></span>
             <span class="k">{tr("Regime", "رژیم")}:</span><span class="v"><strong>{regime_data['name']}</strong></span>
-            <span class="k">{tr("AI", "AI")}:</span><span class="v"><span class="{ai_badge_class}">{ai_sig} ({ai_mode_label})</span></span>
             <span class="k">{T["last_update"]}:</span><span class="v">{now_iran_str('%H:%M:%S')} IRT</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        f"""
+        <div class="app-card" style="margin-top:6px; margin-bottom:8px;">
+            <strong>{tr("AI Confirmation", "AI Confirmation")}</strong>:
+            <span class="{ai_badge_class}" style="margin-left:8px;">{ai_sig} ({ai_mode_label})</span>
+            <div style="margin-top:6px; opacity:0.9;">{ai_reason}</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -2382,9 +2421,9 @@ if not df.empty:
     )
 
     signal_kpi_class = "kpi-neutral"
-    if signal in ["BUY", "STRONG BUY"]:
+    if signal in ["BUY", "STRONG BUY", "VERY STRONG BUY"]:
         signal_kpi_class = "kpi-buy"
-    elif signal in ["SELL", "STRONG SELL"]:
+    elif signal in ["SELL", "STRONG SELL", "VERY STRONG SELL"]:
         signal_kpi_class = "kpi-sell"
     confidence_kpi_class = "kpi-buy" if confidence >= 70 else "kpi-neutral" if confidence >= 45 else "kpi-sell"
     bias_kpi_class = "kpi-buy" if bias_score > 10 else "kpi-sell" if bias_score < -10 else "kpi-neutral"
@@ -2415,7 +2454,7 @@ if not df.empty:
     )
 
     c1, c2, c3, c4, c5 = st.columns(5)
-    c1.metric(T["price"], f"${curr_price:,.2f}", f"{price_delta_live:+.2f}")
+    c1.metric(T["price"], price_text, price_delta_text)
     c2.metric(T["rsi"], f"{curr_rsi:.2f}")
     c3.metric(T["atr"], f"{curr_atr:.2f}")
     c4.metric(T["dxy"], f"{curr_dxy:.2f}")
@@ -2429,12 +2468,12 @@ if not df.empty:
     c6, c7, c8 = st.columns([1.2, 1, 1])
     with c6:
         signal_class = "pulse-animation" if enable_animations else ""
-        if signal in ["BUY", "STRONG BUY"]:
-            if signal == "STRONG BUY" and enable_audio_alerts:
+        if signal in ["BUY", "STRONG BUY", "VERY STRONG BUY"]:
+            if signal in ["STRONG BUY", "VERY STRONG BUY"] and enable_audio_alerts:
                 play_alert_sound("strong_buy")
             st.markdown(f"<div class='signal-buy {signal_class}'><h3>{signal_display}</h3><p>{T['bias_score']}: {bias_score:.1f}</p></div>", unsafe_allow_html=True)
-        elif signal in ["SELL", "STRONG SELL"]:
-            if signal == "STRONG SELL" and enable_audio_alerts:
+        elif signal in ["SELL", "STRONG SELL", "VERY STRONG SELL"]:
+            if signal in ["STRONG SELL", "VERY STRONG SELL"] and enable_audio_alerts:
                 play_alert_sound("strong_sell")
             st.markdown(f"<div class='signal-sell {signal_class}'><h3>{signal_display}</h3><p>{T['bias_score']}: {bias_score:.1f}</p></div>", unsafe_allow_html=True)
         else:
@@ -2449,16 +2488,18 @@ if not df.empty:
             st.write(f"{T['sizing_factor']}: {smart_sizing_data['sizing_factor']:.2f}x")
         else:
             st.write(f"{T['lot_size']}: {lot_size:.3f}")
-        st.write(f"{T['entry_zone']}: {entry_low:,.2f} - {entry_high:,.2f}")
         st.write(f"{T['adx_macd']}: {curr_adx:.1f} / {curr_macd_hist:.3f}")
 
     with c8:
         st.subheader(T["targets"])
+        st.write(f"{T['entry_zone']}: {entry_low:,.2f} - {entry_high:,.2f}")
         st.write(f"{T['tp']}: {tp:,.2f}")
         st.write(f"{T['tp2']}: {tp2:,.2f}")
         st.write(f"{T['sl']}: {sl:,.2f}")
         st.write(T["rr_fmt"].format(rr=rr_ratio))
         st.write(f"{T['corr_dxy']}: {correlation:.2f}")
+        if not has_trade_signal:
+            st.caption(tr("Signal is neutral: targets are set to zero.", "Signal is neutral: targets are set to zero."))
 
     st.markdown("<div class='right-menu'><strong>⚙ " + tr("Right Menu", "منوی راست") + "</strong></div>", unsafe_allow_html=True)
     rm1, rm2, rm3, rm4, rm5, rm6 = st.columns(6)
@@ -2690,9 +2731,10 @@ if not df.empty:
     # --- Chart ---
     chart_snapshot_html = None
     if chart_mode == T["chart_tv"]:
+        # Match TradingView chart with selected futures instrument.
         tv_symbol_map = {
-            "GC=F": "FX_IDC:XAUUSD",
-            "SI=F": "FX_IDC:XAGUSD",
+            "GC=F": "COMEX:GC1!",
+            "SI=F": "COMEX:SI1!",
         }
         tv_interval_map = {
             "1m": "1",
@@ -2702,7 +2744,7 @@ if not df.empty:
             "4h": "240",
             "1d": "D",
         }
-        tv_symbol = tv_symbol_map.get(asset_name, "OANDA:XAUUSD")
+        tv_symbol = tv_symbol_map.get(asset_name, "COMEX:GC1!")
         tv_interval = tv_interval_map.get(timeframe, "60")
         tv_theme = "dark"
         tv_locale = "fa" if lang == "fa" else "en"
@@ -2749,7 +2791,7 @@ if not df.empty:
         fig.add_hline(y=sl, line_dash="dash", line_color="red", row=1, col=1)
 
         # Entry marker
-        if signal in ["BUY", "STRONG BUY", "SELL", "STRONG SELL"]:
+        if signal in ["BUY", "STRONG BUY", "VERY STRONG BUY", "SELL", "STRONG SELL", "VERY STRONG SELL"]:
             fig.add_trace(
                 go.Scatter(
                     x=[df.index[-1]],
@@ -2757,8 +2799,8 @@ if not df.empty:
                     mode="markers",
                     marker=dict(
                         size=12,
-                        color="lime" if signal in ["BUY", "STRONG BUY"] else "red",
-                        symbol="triangle-up" if signal in ["BUY", "STRONG BUY"] else "triangle-down",
+                        color="lime" if signal in ["BUY", "STRONG BUY", "VERY STRONG BUY"] else "red",
+                        symbol="triangle-up" if signal in ["BUY", "STRONG BUY", "VERY STRONG BUY"] else "triangle-down",
                     ),
                     name="Entry",
                 ),
