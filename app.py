@@ -2234,17 +2234,17 @@ if not df.empty:
         trend_sig = "SELL"
         trend_reason = tr("Main trend down (EMA50 < EMA200 + negative slope)", "Main trend down (EMA50 < EMA200 + negative slope)")
 
+    # Core technical methods (fundamental is displayed separately)
     method_signals = [
         ("price_action", T["method_price_action"], pa_sig, pa_reason),
         ("macd", T["method_macd"], macd_sig, macd_reason),
         ("market_structure", tr("Market Structure", "Market Structure"), structure_sig, structure_reason),
         ("trend_follow", tr("Trend Tracking", "Trend Tracking"), trend_sig, trend_reason),
-        ("fundamental", T["method_fundamental"], fund_sig, fund_reason),
     ]
     ai_source = tr("Free Local", "Free Local")
     ai_mode_label = tr("Free Local", "Free Local")
     ai_sig, ai_reason, ai_conf = ai_confirmation_signal(close)
-    has_external_ai = bool(ai_api_key.strip()) and ai_provider == tr("External API", "API ?????")
+    has_external_ai = bool(ai_api_key.strip()) and ai_provider == tr("External API", "External API")
     if enable_ai_confirmation and has_external_ai:
         ext_sig, ext_reason, ext_conf = ai_confirmation_external(
             api_key=ai_api_key.strip(),
@@ -2266,14 +2266,14 @@ if not df.empty:
     method_signals.append(("ai_branch", tr("AI Branch", "AI Branch"), ai_sig, f"[{ai_source}] {ai_reason}"))
 
     # Core signal is driven by weighted methods and recalculated on every refresh.
+    # Fundamental analysis is displayed separately and does NOT affect the main signal
     method_weights = {
         "price_action": 1.8,
         "macd": 1.0,
         "market_structure": 2.4,
         "trend_follow": 3.0,
-        "fundamental": 2.6,
     }
-    core_methods = method_signals[:5]
+    core_methods = method_signals[:4]
     method_count = len(core_methods)
     buy_votes = sum(1 for _, _, s, _ in core_methods if s == "BUY")
     sell_votes = sum(1 for _, _, s, _ in core_methods if s == "SELL")
@@ -2637,13 +2637,13 @@ if not df.empty:
     if sentiment_data and show_sentiment_block:
         sentiment_color = "#21c77a" if sentiment_data['overall'] == 'bullish' else "#ff5a7a" if sentiment_data['overall'] == 'bearish' else "#8a96ad"
         sentiment_display = T[sentiment_data['overall']] if sentiment_data['overall'] in T else sentiment_data['overall']
-        
+
         st.markdown(f"""
         <div class='app-card' style='border-left: 5px solid {sentiment_color};'>
             <h4 style='margin:0; color: var(--txt);'>{T['sentiment_analysis']}</h4>
             <div style='display: flex; justify-content: space-between; align-items: center; margin-top: 10px;'>
                 <div>
-                    <strong>{T['overall_sentiment']}:</strong> 
+                    <strong>{T['overall_sentiment']}:</strong>
                     <span style='color: {sentiment_color}; font-weight: 600;'>{sentiment_display.upper()}</span>
                 </div>
                 <div>
@@ -2655,6 +2655,35 @@ if not df.empty:
                 <div>
                     <strong>{T['news_count']}:</strong> {sentiment_data['count']}
                 </div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    # --- Fundamental Analysis Display ---
+    if show_fundamental_block:
+        fund_color = "#21c77a" if fund_sig == 'BUY' else "#ff5a7a" if fund_sig == 'SELL' else "#8a96ad"
+        fund_display = T["sig_buy"] if fund_sig == 'BUY' else T["sig_sell"] if fund_sig == 'SELL' else T["sig_neutral"]
+
+        st.markdown(f"""
+        <div class='app-card' style='border-left: 5px solid {fund_color};'>
+            <h4 style='margin:0; color: var(--txt);'>{T['method_fundamental']}</h4>
+            <div style='display: flex; justify-content: space-between; align-items: center; margin-top: 10px;'>
+                <div>
+                    <strong>{T['method_signal_col']}:</strong>
+                    <span style='color: {fund_color}; font-weight: 600;'>{fund_display}</span>
+                </div>
+                <div>
+                    <strong>Score:</strong> {fund_score}
+                </div>
+                <div>
+                    <strong>DXY:</strong> {dxy_ret:.2f}%
+                </div>
+                <div>
+                    <strong>US10Y:</strong> {us10y_ret:.2f}%
+                </div>
+            </div>
+            <div style='margin-top: 8px; font-size: 0.9em; opacity: 0.8;'>
+                {fund_reason}
             </div>
         </div>
         """, unsafe_allow_html=True)
