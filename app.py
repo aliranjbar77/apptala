@@ -2625,13 +2625,14 @@ if not df.empty:
             st.caption(tr("Signal is neutral: targets are set to zero.", "Signal is neutral: targets are set to zero."))
 
     st.markdown("<div class='right-menu'><strong>⚙ " + tr("Right Menu", "منوی راست") + "</strong></div>", unsafe_allow_html=True)
-    rm1, rm2, rm3, rm4, rm5, rm6 = st.columns(6)
+    rm1, rm2, rm3, rm4, rm5, rm6, rm7 = st.columns(7)
     show_sentiment_block = rm1.checkbox(tr("Sentiment", "سنتیمنت"), value=False, key="show_sentiment_block")
-    show_macro_block = rm2.checkbox(tr("Macro", "ماکرو"), value=False, key="show_macro_block")
-    show_backtest_block = rm3.checkbox(tr("Backtest", "بک‌تست"), value=False, key="show_backtest_block")
-    show_corr_block = rm4.checkbox(tr("Correlation", "همبستگی"), value=False, key="show_corr_block")
-    show_journal_block = rm5.checkbox(tr("Journal", "ژورنال"), value=False, key="show_journal_block")
-    show_logic_block = rm6.checkbox(tr("Logic", "منطق"), value=False, key="show_logic_block")
+    show_fundamental_block = rm2.checkbox(tr("Fundamental", "فاندامنتال"), value=True, key="show_fundamental_block")
+    show_macro_block = rm3.checkbox(tr("Macro", "ماکرو"), value=False, key="show_macro_block")
+    show_backtest_block = rm4.checkbox(tr("Backtest", "بک‌تست"), value=False, key="show_backtest_block")
+    show_corr_block = rm5.checkbox(tr("Correlation", "همبستگی"), value=False, key="show_corr_block")
+    show_journal_block = rm6.checkbox(tr("Journal", "ژورنال"), value=False, key="show_journal_block")
+    show_logic_block = rm7.checkbox(tr("Logic", "منطق"), value=False, key="show_logic_block")
 
     # --- Sentiment Analysis Display ---
     if sentiment_data and show_sentiment_block:
