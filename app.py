@@ -7,7 +7,7 @@ import streamlit.components.v1 as components
 from plotly.subplots import make_subplots
 from ta.momentum import RSIIndicator
 from ta.volatility import BollingerBands, AverageTrueRange
-from ta.trend import EMAIndicator, MACD, ADXIndicator
+from ta.trend import EMAIndicator, ADXIndicator, MACD
 import requests
 import json
 from datetime import datetime, timedelta
