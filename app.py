@@ -14,7 +14,6 @@ from datetime import datetime, timedelta
 import re
 import time
 from pathlib import Path
-from zoneinfo import ZoneInfo
 import os
 
 # --- Audio Alert Function ---
@@ -480,7 +479,14 @@ def get_data(symbol: str, period: str, interval: str):
 
 def now_iran_str(fmt: str = "%Y-%m-%d %H:%M:%S") -> str:
     try:
-        return datetime.now(ZoneInfo("Asia/Tehran")).strftime(fmt)
+        # Try using ZoneInfo first (Python 3.9+)
+        try:
+            from zoneinfo import ZoneInfo
+            return datetime.now(ZoneInfo("Asia/Tehran")).strftime(fmt)
+        except ImportError:
+            # Fallback for older Python versions
+            import pytz
+            return datetime.now(pytz.timezone("Asia/Tehran")).strftime(fmt)
     except Exception:
         return datetime.utcnow().strftime(fmt) + " UTC"
 
@@ -2043,10 +2049,10 @@ if not df.empty:
         df.at[last_idx, "Low"] = min(last_low, curr_price)
         df = calculate_patterns(df)
 
-    close = df["Close"].squeeze()
-    high = df["High"].squeeze()
-    low = df["Low"].squeeze()
-    volume = df["Volume"].squeeze() if "Volume" in df.columns else pd.Series(index=df.index, dtype=float)
+    close = df["Close"]
+    high = df["High"]
+    low = df["Low"]
+    volume = df["Volume"] if "Volume" in df.columns else pd.Series(index=df.index, dtype=float)
 
     rsi = RSIIndicator(close).rsi()
     ema50 = EMAIndicator(close, window=50).ema_indicator()
