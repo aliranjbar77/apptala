@@ -2065,8 +2065,8 @@ if not df.empty:
     curr_adx = safe_last(adx)
     curr_macd_hist = safe_last(macd_hist)
 
-    ema50_slope = float(ema50.iloc[-1] - ema50.iloc[-2]) if len(ema50.dropna()) > 2 else 0.0
-    obv_slope = float(obv.iloc[-1] - obv.iloc[-2]) if len(obv.dropna()) > 2 else 0.0
+    ema50_slope = safe_last(ema50.diff(5))
+    obv_slope = safe_last(obv.diff(5))
 
     # Higher timeframe confirmation
     df_higher, higher_tf = get_higher_timeframe(asset_name, timeframe)
@@ -2094,8 +2094,8 @@ if not df.empty:
     bb_upper = BollingerBands(close).bollinger_hband()
     bb_lower = BollingerBands(close).bollinger_lband()
     bb_middle = BollingerBands(close).bollinger_mavg()
-    bb_width = (bb_upper - bb_lower) / bb_middle
-    price_bb_position = (curr_price - bb_lower) / (bb_upper - bb_lower)
+    bb_width = (safe_last(bb_upper) - safe_last(bb_lower)) / safe_last(bb_middle)
+    price_bb_position = (curr_price - safe_last(bb_lower)) / (safe_last(bb_upper) - safe_last(bb_lower))
     
     # Enhanced trend analysis with multiple timeframe confirmation
     ema20_slope = safe_last(ema20.diff(5))
@@ -2336,12 +2336,10 @@ if not df.empty:
             pa_reason = tr("[Source: price candles] Trend continuation below EMA20/EMA50", "[Source: price candles] ادامه روند پایین‌تر EMA20/EMA50")
     
     # Additional filter: avoid weak signals in choppy markets
-    if market_volatility > 2.5 and strength < 0.7:
+    if market_volatility > 2.5:
         if pa_sig in ["BUY", "SELL"]:
             pa_sig = "NEUTRAL"
             pa_reason = tr("[Source: price candles] Signal filtered: choppy market", "[Source: price candles] سیگنال فیلتر شد: بازار ناپایدار")
-            round_bias = "NEUTRAL"
-            strength = 0.0
 
     macd_sig = "NEUTRAL"
     macd_reason = tr("[Source: MACD] Flat momentum", "[Source: MACD] Flat momentum")
