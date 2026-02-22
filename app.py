@@ -1195,7 +1195,7 @@ def run_backtest(df: pd.DataFrame, timeframe: str, initial_balance: float = 1000
         current_rsi = rsi.iloc[i]
         current_ema50 = ema50.iloc[i]
         current_ema200 = ema200.iloc[i]
-        current_macd_hist = macd.macd_hist().iloc[i]
+        current_macd_hist = macd.macd_diff().iloc[i]
         current_adx = adx.adx().iloc[i]
         
         # Simple signal logic for backtest
@@ -2158,9 +2158,10 @@ if not df.empty:
         bearish_reasons.append(tr("RSI overbought in downtrend", "RSI اشباع خرید در روند نزولی"))
 
     # Enhanced MACD analysis
-    macd_signal = MACD(close).macd_signal()
-    macd_histogram = MACD(close).macd_hist()
-    macd_line = MACD(close).macd()
+    macd_indicator = MACD(close)
+    macd_signal = macd_indicator.macd_signal()
+    macd_histogram = macd_indicator.macd_diff()  # Use macd_diff() instead of macd_histogram()
+    macd_line = macd_indicator.macd()
     
     if macd_histogram > 0 and macd_line > macd_signal:
         long_pts += 9
