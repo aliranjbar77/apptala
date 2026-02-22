@@ -2159,9 +2159,14 @@ if not df.empty:
 
     # Enhanced MACD analysis
     macd_indicator = MACD(close)
-    macd_signal = macd_indicator.macd_signal()
-    macd_histogram = macd_indicator.macd_diff()  # Use macd_diff() instead of macd_histogram()
-    macd_line = macd_indicator.macd()
+    macd_signal_series = macd_indicator.macd_signal()
+    macd_histogram_series = macd_indicator.macd_diff()  # Use macd_diff() instead of macd_histogram()
+    macd_line_series = macd_indicator.macd()
+    
+    # Get last values for comparison
+    macd_signal = safe_last(macd_signal_series)
+    macd_histogram = safe_last(macd_histogram_series)
+    macd_line = safe_last(macd_line_series)
     
     if macd_histogram > 0 and macd_line > macd_signal:
         long_pts += 9
@@ -2347,10 +2352,10 @@ if not df.empty:
         elif macd_hist.iloc[-1] < 0 and macd_hist.iloc[-2] >= 0:
             macd_sig = "SELL"
             macd_reason = tr("[Source: MACD] Histogram crossed below zero", "[Source: MACD] Histogram crossed below zero")
-        elif macd_hist.iloc[-1] > 0 and macd_line.iloc[-1] > macd_signal.iloc[-1]:
+        elif macd_hist.iloc[-1] > 0 and safe_last(macd_line) > safe_last(macd_signal):
             macd_sig = "BUY"
             macd_reason = tr("[Source: MACD] Positive histogram with bullish line structure", "[Source: MACD] Positive histogram with bullish line structure")
-        elif macd_hist.iloc[-1] < 0 and macd_line.iloc[-1] < macd_signal.iloc[-1]:
+        elif macd_hist.iloc[-1] < 0 and safe_last(macd_line) < safe_last(macd_signal):
             macd_sig = "SELL"
             macd_reason = tr("[Source: MACD] Negative histogram with bearish line structure", "[Source: MACD] Negative histogram with bearish line structure")
 
