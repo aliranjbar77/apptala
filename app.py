@@ -649,7 +649,8 @@ def get_market_structure(
     
     # Calculate market volatility for filtering
     atr = AverageTrueRange(high, low, close).average_true_range()
-    market_volatility = (atr / current) * 100 if current > 0 else 0.0
+    atr_series = pd.to_numeric(atr, errors="coerce").dropna()
+    market_volatility = (atr_series.iloc[-1] / current) * 100 if len(atr_series) > 0 and current > 0 else 0.0
     
     # Calculate volume confirmation
     vol_sma = safe_last(volume.rolling(20).mean(), default=0.0) if volume is not None else 0.0
