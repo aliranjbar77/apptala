@@ -1953,7 +1953,7 @@ with st.sidebar.expander(tr("Signal Engine", "Signal Engine"), expanded=False):
 st.sidebar.markdown("---")
 st.sidebar.subheader(tr("Quick Actions", "اقدامات سریع"))
 qa1, qa2 = st.sidebar.columns(2)
-if qa1.button(tr("Reset Risk", "ریست ریسک"), use_container_width=True):
+if qa1.button(tr("Reset Risk", "ریست ریسک"), width='stretch'):
     st.session_state["balance_input"] = 1000.0
     st.session_state["risk_pct_input"] = 2.0
     st.session_state["atr_mult_input"] = 2.0
@@ -1963,9 +1963,9 @@ if qa1.button(tr("Reset Risk", "ریست ریسک"), use_container_width=True):
     st.session_state["risk_multiplier_compact"] = 1.0
     st.session_state["enable_smart_sizing_compact"] = True
     st.rerun()
-if qa2.button(tr("Reload", "بارگذاری"), use_container_width=True):
+if qa2.button(tr("Reload", "بارگذاری"), width='stretch'):
     st.rerun()
-snapshot_requested = st.sidebar.button(tr("Chart Snapshot (HTML)", "خروجی چارت (HTML)"), use_container_width=True)
+snapshot_requested = st.sidebar.button(tr("Chart Snapshot (HTML)", "خروجی چارت (HTML)"), width='stretch')
 
 # --- Main Logic ---
 period_map = {
@@ -3103,7 +3103,7 @@ if not df.empty:
             
             # Create and display heatmap
             heatmap_fig = create_correlation_heatmap(correlation_data)
-            st.plotly_chart(heatmap_fig, use_container_width=True)
+            st.plotly_chart(heatmap_fig, width='stretch')
             
             # Display detailed correlation table
             correlation_rows = []
@@ -3131,7 +3131,7 @@ if not df.empty:
                 jf["timestamp"] = pd.to_datetime(jf["timestamp"], errors="coerce")
                 jf = jf.sort_values("timestamp")
                 st.write(tr("Recent signal logs", "لاگ اخیر سیگنال‌ها"))
-                st.dataframe(jf.tail(20), use_container_width=True, hide_index=True)
+                st.dataframe(jf.tail(20), width='stretch', hide_index=True)
                 if len(jf) >= 2:
                     signal_shift_rate = (jf["signal"].astype(str) != jf["signal"].astype(str).shift(1)).mean() * 100.0
                     avg_conf = float(jf["confidence"].astype(float).mean())
@@ -3186,7 +3186,7 @@ if not df.empty:
         axis=1)
     
     st.markdown(f"<div class='app-card'><h4 style='margin:0;'>{T['method_title']}</h4></div>", unsafe_allow_html=True)
-    st.dataframe(styled_df, use_container_width=True, hide_index=True)
+    st.dataframe(styled_df, width='stretch', hide_index=True)
 
     # --- Chart ---
     chart_snapshot_html = None
@@ -3295,7 +3295,7 @@ if not df.empty:
             fig.update_xaxes(range=[df.index[-live_window], df.index[-1]], row=2, col=1)
 
         fig.update_layout(height=800, template="plotly_dark", xaxis_rangeslider_visible=False)
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
         if snapshot_requested:
             chart_snapshot_html = fig.to_html(include_plotlyjs="cdn")
             st.sidebar.download_button(
@@ -3303,7 +3303,7 @@ if not df.empty:
                 data=chart_snapshot_html,
                 file_name=f"chart_snapshot_{asset_name}_{timeframe}.html",
                 mime="text/html",
-                use_container_width=True,
+                width='stretch',
             )
 
     if show_logic_block:
