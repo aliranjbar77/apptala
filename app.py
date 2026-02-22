@@ -561,6 +561,7 @@ def get_market_structure(
     low: pd.Series,
     close: pd.Series,
     lookback: int = 80,
+    volume: pd.Series | None = None,
 ) -> dict:
     hs = pd.to_numeric(high, errors="coerce").dropna()
     ls = pd.to_numeric(low, errors="coerce").dropna()
@@ -574,46 +575,85 @@ def get_market_structure(
             "round_bias": "NEUTRAL",
             "signal": "NEUTRAL",
             "reason": "market structure unavailable",
+            "strength": 0.0
         }
-
+    
     lb = min(lookback, len(cs))
     window_high = hs.iloc[-lb:]
     window_low = ls.iloc[-lb:]
     current = float(cs.iloc[-1])
-    support = float(window_low.quantile(0.2))
-    resistance = float(window_high.quantile(0.8))
+    support = float(window_low.quantile(0.15))  # More aggressive support level
+    resistance = float(window_high.quantile(0.85))  # More aggressive resistance level
     rng = max(resistance - support, max(current * 0.002, 1e-6))
-    near_support = abs(current - support) <= 0.12 * rng
-    near_resistance = abs(current - resistance) <= 0.12 * rng
-
+    
+    # Calculate proximity percentages
+    support_proximity = (current - support) / rng if rng > 0 else 0
+    resistance_proximity = (resistance - current) / rng if rng > 0 else 0
+    near_support = support_proximity <= 0.15
+    near_resistance = resistance_proximity <= 0.15
+    
     # Round-number reaction zones (gold often reacts around .00/.50 levels).
-    near_00 = abs(current - round(current)) <= 0.18
-    near_50 = abs(current - (np.floor(current) + 0.5)) <= 0.18
+    near_00 = abs(current - round(current)) <= 0.15
+    near_50 = abs(current - (np.floor(current) + 0.5)) <= 0.15
+    
+    # Enhanced trend confirmation
+    ema20_above_ema50 = safe_last(ema20) > safe_last(ema50)
+    price_above_ema20 = current > safe_last(ema20)
+    price_below_ema20 = current < safe_last(ema20)
+    
     round_bias = "NEUTRAL"
-    if near_support and (near_00 or near_50):
-        round_bias = "BUY"
-    elif near_resistance and (near_00 or near_50):
-        round_bias = "SELL"
-
     signal = "NEUTRAL"
     reason = "range center"
+    strength = 0.0
+    
     if current > resistance:
-        signal = "BUY"
-        reason = "structure breakout above resistance"
+        if price_above_ema20 and ema20_above_ema50:
+            signal = "BUY"
+            reason = "strong structure breakout above resistance with trend confirmation"
+            strength = 0.8
+        else:
+            signal = "BUY"
+            reason = "structure breakout above resistance"
+            strength = 0.6
+        round_bias = "BUY"
     elif current < support:
-        signal = "SELL"
-        reason = "structure breakdown below support"
-    elif near_support:
-        signal = "BUY"
-        reason = "reaction near support zone"
-    elif near_resistance:
-        signal = "SELL"
-        reason = "reaction near resistance zone"
-
-    if signal == "NEUTRAL" and round_bias != "NEUTRAL":
-        signal = round_bias
-        reason = "round-level reaction"
-
+        if price_below_ema20 and not ema20_above_ema50:
+            signal = "SELL"
+            reason = "strong structure breakdown below support with trend confirmation"
+            strength = 0.8
+        else:
+            signal = "SELL"
+            reason = "structure breakdown below support"
+            strength = 0.6
+        round_bias = "SELL"
+    elif near_support and (near_00 or near_50):
+        if volume_confirmation:  # Use volume confirmation
+            signal = "BUY"
+            reason = "strong reaction near support zone with volume confirmation"
+            strength = 0.7
+        else:
+            signal = "BUY"
+            reason = "reaction near support zone"
+            strength = 0.5
+        round_bias = "BUY"
+    elif near_resistance and (near_00 or near_50):
+        if volume_confirmation:  # Use volume confirmation
+            signal = "SELL"
+            reason = "strong reaction near resistance zone with volume confirmation"
+            strength = 0.7
+        else:
+            signal = "SELL"
+            reason = "reaction near resistance zone"
+            strength = 0.5
+        round_bias = "SELL"
+    
+    # Additional filter: avoid weak signals in choppy markets
+    if market_volatility > 2.5 and strength < 0.7:
+        signal = "NEUTRAL"
+        reason = "structure signal filtered: choppy market"
+        round_bias = "NEUTRAL"
+        strength = 0.0
+    
     return {
         "support": support,
         "resistance": resistance,
@@ -622,6 +662,7 @@ def get_market_structure(
         "round_bias": round_bias,
         "signal": signal,
         "reason": reason,
+        "strength": strength
     }
 
 
@@ -2236,20 +2277,49 @@ if not df.empty:
     prev_high_20 = safe_last(high.shift(1).rolling(20).max(), default=curr_price)
     prev_low_20 = safe_last(low.shift(1).rolling(20).min(), default=curr_price)
 
+    # Enhanced Price Action Analysis with better filtering
     pa_sig = "NEUTRAL"
     pa_reason = tr("[Source: price candles] Range/no clear breakout", "[Source: price candles] Range/no clear breakout")
+    
+    # Get volume confirmation from market structure
+    volume_confirmation = market_structure.get("volume_confirmation", False)
+    
     if curr_price > prev_high_20 and curr_price > safe_last(ema50):
-        pa_sig = "BUY"
-        pa_reason = tr("[Source: price candles] Breakout above previous 20-bar high", "[Source: price candles] Breakout above previous 20-bar high")
+        if volume_confirmation:
+            pa_sig = "BUY"
+            pa_reason = tr("[Source: price candles] Volume-confirmed breakout above 20-bar high", "[Source: price candles] جهش حجم تأیید شده بالاترین بالای 20 روزه")
+        else:
+            pa_sig = "BUY"
+            pa_reason = tr("[Source: price candles] Breakout above previous 20-bar high", "[Source: price candles] شکستن بالاترین بالای 20 روزه")
     elif curr_price < prev_low_20 and curr_price < safe_last(ema50):
-        pa_sig = "SELL"
-        pa_reason = tr("[Source: price candles] Breakdown below previous 20-bar low", "[Source: price candles] Breakdown below previous 20-bar low")
+        if volume_confirmation:
+            pa_sig = "SELL"
+            pa_reason = tr("[Source: price candles] Volume-confirmed breakdown below 20-bar low", "[Source: price candles] جهش حجم تأیید شده پایین‌ترین پایین 20 روزه")
+        else:
+            pa_sig = "SELL"
+            pa_reason = tr("[Source: price candles] Breakdown below previous 20-bar low", "[Source: price candles] شکستن پایین‌ترین پایین 20 روزه")
     elif curr_price > safe_last(ema20) and safe_last(ema20) > safe_last(ema50):
-        pa_sig = "BUY"
-        pa_reason = tr("[Source: price candles] Trend continuation above EMA20/EMA50", "[Source: price candles] Trend continuation above EMA20/EMA50")
+        # Trend continuation with momentum check
+        if ema20_slope > 0.001 and volume_confirmation:
+            pa_sig = "BUY"
+            pa_reason = tr("[Source: price candles] Bullish trend continuation with volume", "[Source: price candles] ادامه روند صعودی با حجم")
+        else:
+            pa_sig = "BUY"
+            pa_reason = tr("[Source: price candles] Trend continuation above EMA20/EMA50", "[Source: price candles] ادامه روند بالاترین EMA20/EMA50")
     elif curr_price < safe_last(ema20) and safe_last(ema20) < safe_last(ema50):
-        pa_sig = "SELL"
-        pa_reason = tr("[Source: price candles] Trend continuation below EMA20/EMA50", "[Source: price candles] Trend continuation below EMA20/EMA50")
+        # Trend continuation with momentum check
+        if ema20_slope < -0.001 and volume_confirmation:
+            pa_sig = "SELL"
+            pa_reason = tr("[Source: price candles] Bearish trend continuation with volume", "[Source: price candles] ادامه روند نزولی با حجم")
+        else:
+            pa_sig = "SELL"
+            pa_reason = tr("[Source: price candles] Trend continuation below EMA20/EMA50", "[Source: price candles] ادامه روند پایین‌تر EMA20/EMA50")
+    
+    # Additional filter: avoid signals in choppy markets
+    if market_volatility > 3.0:  # Very choppy market
+        if pa_sig in ["BUY", "SELL"]:
+            pa_sig = "NEUTRAL"
+            pa_reason = tr("[Source: price candles] Signal filtered: choppy market", "[Source: price candles] سیگنال فیلتر شد: بازار ناپایدار")
 
     macd_sig = "NEUTRAL"
     macd_reason = tr("[Source: MACD] Flat momentum", "[Source: MACD] Flat momentum")
@@ -2320,6 +2390,15 @@ if not df.empty:
         ("market_structure", tr("Market Structure", "Market Structure"), structure_sig, structure_reason),
         ("trend_follow", tr("Trend Tracking", "Trend Tracking"), trend_sig, trend_reason),
     ]
+    
+    # Add strength from market structure to method signals
+    method_signals_with_strength = []
+    for method_code, method_name, method_sig, method_reason in method_signals:
+        strength_bonus = 0.0
+        if method_code == "market_structure" and market_structure.get("strength", 0.0) > 0:
+            strength_bonus = market_structure["strength"] * 0.5  # Add strength bonus
+        method_signals_with_strength.append((method_code, method_name, method_sig, method_reason))
+    
     ai_source = tr("Free Local", "Free Local")
     ai_mode_label = tr("Free Local", "Free Local")
     ai_sig, ai_reason, ai_conf = ai_confirmation_signal(close)
@@ -2346,17 +2425,29 @@ if not df.empty:
 
     # Enhanced Core signal calculation with improved thresholds
     method_weights = {
-        "price_action": 2.2,      # Increased weight for price action
-        "macd": 1.2,            # Slightly increased
-        "market_structure": 2.8,    # Increased for structure importance
-        "trend_follow": 3.2,       # Highest weight for trend
+        "price_action": 2.5,      # Highest weight for price action
+        "macd": 1.5,            # Increased for MACD importance
+        "market_structure": 3.0,    # Highest weight for structure
+        "trend_follow": 3.5,       # Highest weight for trend
     }
-    core_methods = method_signals[:4]
+    core_methods = method_signals_with_strength
     method_count = len(core_methods)
     buy_votes = sum(1 for _, _, s, _ in core_methods if s == "BUY")
     sell_votes = sum(1 for _, _, s, _ in core_methods if s == "SELL")
+    
+    # Calculate weights with strength bonuses
     buy_weight = sum(method_weights.get(code, 1.0) for code, _, s, _ in core_methods if s == "BUY")
     sell_weight = sum(method_weights.get(code, 1.0) for code, _, s, _ in core_methods if s == "SELL")
+    
+    # Add strength bonuses from market structure
+    for method_code, _, method_sig, _ in core_methods:
+        if method_code == "market_structure" and market_structure.get("strength", 0.0) > 0:
+            strength_bonus = market_structure["strength"] * 0.5  # Add strength bonus
+            if method_sig == "BUY":
+                buy_weight += strength_bonus
+            elif method_sig == "SELL":
+                sell_weight += strength_bonus
+    
     total_core_weight = sum(method_weights.get(code, 1.0) for code, _, _, _ in core_methods)
     weight_edge = buy_weight - sell_weight
     agreement_pct = (max(buy_weight, sell_weight) / max(total_core_weight, 1e-9)) * 100.0
@@ -2368,30 +2459,34 @@ if not df.empty:
     # Enhanced signal determination with stricter thresholds
     signal = "NEUTRAL"
     
+    # Dynamic thresholds based on market conditions
+    market_volatility = curr_atr / curr_price * 100  # ATR as percentage
+    volatility_multiplier = 1.2 if market_volatility > 2.0 else 1.0  # Higher threshold in volatile markets
+    
     # Very Strong signals require both weight and consensus
-    if signal_strength >= 0.85 and consensus_strength >= 0.75:
+    if signal_strength >= (0.80 * volatility_multiplier) and consensus_strength >= 0.75:
         if buy_weight > sell_weight:
             signal = "VERY STRONG BUY"
         else:
             signal = "VERY STRONG SELL"
     
-    # Strong signals
-    elif signal_strength >= 0.65 and consensus_strength >= 0.6:
-        if buy_weight > sell_weight and sell_weight <= total_core_weight * 0.15:
+    # Strong signals with dynamic thresholds
+    elif signal_strength >= (0.60 * volatility_multiplier) and consensus_strength >= 0.6:
+        if buy_weight > sell_weight and sell_weight <= total_core_weight * 0.2:
             signal = "STRONG BUY"
-        elif sell_weight > buy_weight and buy_weight <= total_core_weight * 0.15:
+        elif sell_weight > buy_weight and buy_weight <= total_core_weight * 0.2:
             signal = "STRONG SELL"
     
     # Regular signals with better filtering
-    elif signal_strength >= 0.45 and consensus_strength >= 0.5:
+    elif signal_strength >= (0.40 * volatility_multiplier) and consensus_strength >= 0.5:
         if buy_weight > sell_weight:
             signal = "BUY"
         elif sell_weight > buy_weight:
             signal = "SELL"
     
-    # Additional confirmation using bias score
+    # Additional confirmation using bias score with dynamic threshold
     bias_score = long_pts - short_pts
-    bias_threshold = 15  # Minimum bias for signal
+    bias_threshold = 20 * volatility_multiplier  # Dynamic bias threshold
     
     # Apply bias filter for weak signals
     if signal in ["BUY", "SELL"] and abs(bias_score) < bias_threshold:
@@ -2399,14 +2494,21 @@ if not df.empty:
         bullish_reasons.append(tr("Signal filtered: insufficient bias", "سیگنال فیلتر شد: بایاس ناکافی"))
         bearish_reasons.append(tr("Signal filtered: insufficient bias", "سیگنال فیلتر شد: بایاس ناکافی"))
     
-    # Final confirmation check
+    # Final confirmation check with stricter requirements
     if signal != "NEUTRAL":
         # Ensure minimum agreement from core methods
-        min_agreement = 0.6  # 60% minimum agreement
+        min_agreement = 0.65  # 65% minimum agreement
         if consensus_strength < min_agreement:
             signal = "NEUTRAL"
             bullish_reasons.append(tr("Signal filtered: low consensus", "سیگنال فیلتر شد: اجماع پایین"))
             bearish_reasons.append(tr("Signal filtered: low consensus", "سیگنال فیلتر شد: اجماع پایین"))
+        
+        # Additional filter: ensure no conflicting signals
+        conflicting_signals = abs(buy_weight - sell_weight) < (total_core_weight * 0.3)
+        if conflicting_signals:
+            signal = "NEUTRAL"
+            bullish_reasons.append(tr("Signal filtered: conflicting indicators", "سیگنال فیلتر شد: اندیکاتورهای متضاد"))
+            bearish_reasons.append(tr("Signal filtered: conflicting indicators", "سیگنال فیلتر شد: اندیکاتورهای متضاد"))
 
     # Fallback to directional trend when votes are low but one-sided.
     if signal == "NEUTRAL":
