@@ -647,6 +647,16 @@ def get_market_structure(
             strength = 0.5
         round_bias = "SELL"
     
+    # Calculate market volatility for filtering
+    atr = AverageTrueRange(high, low, close).average_true_range()
+    market_volatility = (atr / current) * 100 if current > 0 else 0.0
+    
+    # Calculate volume confirmation
+    vol_sma = safe_last(volume.rolling(20).mean(), default=0.0) if volume is not None else 0.0
+    vol_last = safe_last(volume, default=0.0) if volume is not None else 0.0
+    rel_vol = vol_last / max(vol_sma, 1e-9) if vol_sma > 0 else 1.0
+    volume_confirmation = rel_vol >= 1.2
+    
     # Additional filter: avoid weak signals in choppy markets
     if market_volatility > 2.5 and strength < 0.7:
         signal = "NEUTRAL"
@@ -662,7 +672,9 @@ def get_market_structure(
         "round_bias": round_bias,
         "signal": signal,
         "reason": reason,
-        "strength": strength
+        "strength": strength,
+        "volume_confirmation": volume_confirmation,
+        "market_volatility": market_volatility
     }
 
 
