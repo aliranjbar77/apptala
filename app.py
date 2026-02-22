@@ -2283,6 +2283,7 @@ if not df.empty:
     
     # Get volume confirmation from market structure
     volume_confirmation = market_structure.get("volume_confirmation", False)
+    market_volatility = market_structure.get("market_volatility", 0.0)
     
     if curr_price > prev_high_20 and curr_price > safe_last(ema50):
         if volume_confirmation:
@@ -2315,11 +2316,13 @@ if not df.empty:
             pa_sig = "SELL"
             pa_reason = tr("[Source: price candles] Trend continuation below EMA20/EMA50", "[Source: price candles] ادامه روند پایین‌تر EMA20/EMA50")
     
-    # Additional filter: avoid signals in choppy markets
-    if market_volatility > 3.0:  # Very choppy market
+    # Additional filter: avoid weak signals in choppy markets
+    if market_volatility > 2.5 and strength < 0.7:
         if pa_sig in ["BUY", "SELL"]:
             pa_sig = "NEUTRAL"
             pa_reason = tr("[Source: price candles] Signal filtered: choppy market", "[Source: price candles] سیگنال فیلتر شد: بازار ناپایدار")
+            round_bias = "NEUTRAL"
+            strength = 0.0
 
     macd_sig = "NEUTRAL"
     macd_reason = tr("[Source: MACD] Flat momentum", "[Source: MACD] Flat momentum")
