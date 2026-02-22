@@ -959,7 +959,8 @@ def calculate_overall_sentiment(articles: list) -> dict:
         'overall': overall_sentiment,
         'score': weighted_score,
         'confidence': avg_confidence,
-        'count': len(sentiments)
+        'count': len(sentiments),
+        'articles_analyzed': len(sentiments)
     }
 
 # --- Macro Economic Functions ---
@@ -2026,7 +2027,7 @@ if not df.empty:
         if len(common_idx) > 3:
             correlation = float(df.loc[common_idx]["Close"].corr(dxy.loc[common_idx]["Close"]))
 
-    # --- Multi-factor Signal Engine ---
+    # --- Enhanced Multi-factor Signal Engine ---
     long_pts = 0.0
     short_pts = 0.0
     bullish_reasons = []
@@ -2034,45 +2035,99 @@ if not df.empty:
 
     trend_bias = "UP" if curr_price > safe_last(ema200) else "DOWN"
     market_structure = get_market_structure(high, low, close)
-
-    # 1) Trend structure with heavy EMA200 weighting
+    
+    # Calculate additional indicators for better accuracy
+    bb_upper = BollingerBands(close).bollinger_hband()
+    bb_lower = BollingerBands(close).bollinger_lband()
+    bb_middle = BollingerBands(close).bollinger_mavg()
+    bb_width = (bb_upper - bb_lower) / bb_middle
+    price_bb_position = (curr_price - bb_lower) / (bb_upper - bb_lower)
+    
+    # Enhanced trend analysis with multiple timeframe confirmation
+    ema20_slope = safe_last(ema20.diff(5))
+    ema200_slope = safe_last(ema200.diff(10))
+    
+    # 1) Enhanced Trend structure with dynamic weighting
+    ema200_weight = 30  # Increased weight for primary trend
     if curr_price > safe_last(ema200):
-        long_pts += 26
+        long_pts += ema200_weight
         bullish_reasons.append(tr("Price above EMA200 (primary trend filter)", "Price above EMA200 (primary trend filter)"))
+        
+        # Additional confirmation for strong trend
+        if ema200_slope > 0:
+            long_pts += 8
+            bullish_reasons.append(tr("EMA200 trending up", "EMA200 در روند صعودی"))
     else:
-        short_pts += 26
+        short_pts += ema200_weight
         bearish_reasons.append(tr("Price below EMA200 (primary trend filter)", "Price below EMA200 (primary trend filter)"))
+        
+        if ema200_slope < 0:
+            short_pts += 8
+            bearish_reasons.append(tr("EMA200 trending down", "EMA200 در روند نزولی"))
 
+    # Multi-EMA alignment with stronger confirmation
     if safe_last(ema20) > safe_last(ema50) > safe_last(ema200):
-        long_pts += 12
+        alignment_strength = min(3, (safe_last(ema20) - safe_last(ema200)) / safe_last(ema200) * 100)
+        long_pts += 12 + alignment_strength * 2
+        bullish_reasons.append(tr(f"EMA alignment confirmed (strength: {alignment_strength:.1f})", f"همسویی EMA تأیید شد (قدرت: {alignment_strength:.1f})"))
     elif safe_last(ema20) < safe_last(ema50) < safe_last(ema200):
-        short_pts += 12
+        alignment_strength = min(3, (safe_last(ema200) - safe_last(ema20)) / safe_last(ema200) * 100)
+        short_pts += 12 + alignment_strength * 2
+        bearish_reasons.append(tr(f"EMA alignment confirmed (strength: {alignment_strength:.1f})", f"همسویی EMA تأیید شد (قدرت: {alignment_strength:.1f})"))
 
-    if ema50_slope > 0:
+    # Enhanced slope analysis
+    if ema50_slope > 0.001:  # More precise threshold
+        long_pts += 10
+        bullish_reasons.append(tr("EMA50 positive slope", "شیب مثبت EMA50"))
+    elif ema50_slope < -0.001:
+        short_pts += 10
+        bearish_reasons.append(tr("EMA50 negative slope", "شیب منفی EMA50"))
+
+    # 2) Enhanced Momentum with RSI divergence detection
+    rsi_oversold = curr_rsi <= 30
+    rsi_overbought = curr_rsi >= 70
+    
+    if 45 <= curr_rsi <= 55:  # Neutral zone - reduced points
+        long_pts += 2
+        short_pts += 2
+    elif 52 <= curr_rsi <= 68:  # Optimistic bullish zone
+        long_pts += 6
+        bullish_reasons.append(tr(f"RSI in bullish zone ({curr_rsi:.1f})", f"RSI در منطقه صعودی ({curr_rsi:.1f})"))
+    elif 32 <= curr_rsi <= 48:  # Bearish zone
+        short_pts += 6
+        bearish_reasons.append(tr(f"RSI in bearish zone ({curr_rsi:.1f})", f"RSI در منطقه نزولی ({curr_rsi:.1f})"))
+    elif rsi_oversold and trend_bias == "UP":
+        long_pts += 8  # Oversold in uptrend
+        bullish_reasons.append(tr("RSI oversold in uptrend", "RSI اشباع فروش در روند صعودی"))
+    elif rsi_overbought and trend_bias == "DOWN":
+        short_pts += 8  # Overbought in downtrend
+        bearish_reasons.append(tr("RSI overbought in downtrend", "RSI اشباع خرید در روند نزولی"))
+
+    # Enhanced MACD analysis
+    macd_signal = MACD(close).macd_signal()
+    macd_histogram = MACD(close).macd_hist()
+    macd_line = MACD(close).macd()
+    
+    if macd_histogram > 0 and macd_line > macd_signal:
         long_pts += 9
-    elif ema50_slope < 0:
+        bullish_reasons.append(tr("MACD bullish crossover", "کراس‌اور صعودی MACD"))
+    elif macd_histogram < 0 and macd_line < macd_signal:
         short_pts += 9
-
-    if curr_adx >= 22:
-        if trend_bias == "UP":
-            long_pts += 7
-        else:
-            short_pts += 7
-
-    # 2) Momentum (supportive only)
-    if 52 <= curr_rsi <= 68:
+        bearish_reasons.append(tr("MACD bearish crossover", "کراس‌اور نزولی MACD"))
+    elif macd_histogram > 0:
         long_pts += 4
-    elif 32 <= curr_rsi <= 48:
+    elif macd_histogram < 0:
         short_pts += 4
 
-    if curr_macd_hist > 0:
-        long_pts += 7
-    elif curr_macd_hist < 0:
-        short_pts += 7
-
-    # 3) Market structure and round levels
+    # 3) Enhanced Market structure with Bollinger Bands
     if market_structure["signal"] == "BUY":
-        long_pts += 14
+        structure_bonus = 16
+        # Additional confirmation if price is near lower BB
+        if price_bb_position <= 0.2:
+            structure_bonus += 4
+            bullish_reasons.append(tr("Price near lower Bollinger Band", "قیمت نزدیک به باند پایینی بولینگر"))
+        
+        long_pts += structure_bonus
         bullish_reasons.append(
             tr(
                 f"Structure: {market_structure['reason']} | S={market_structure['support']:.2f} R={market_structure['resistance']:.2f}",
@@ -2080,7 +2135,13 @@ if not df.empty:
             )
         )
     elif market_structure["signal"] == "SELL":
-        short_pts += 14
+        structure_bonus = 16
+        # Additional confirmation if price is near upper BB
+        if price_bb_position >= 0.8:
+            structure_bonus += 4
+            bearish_reasons.append(tr("Price near upper Bollinger Band", "قیمت نزدیک به باند بالایی بولینگر"))
+        
+        short_pts += structure_bonus
         bearish_reasons.append(
             tr(
                 f"Structure: {market_structure['reason']} | S={market_structure['support']:.2f} R={market_structure['resistance']:.2f}",
@@ -2088,15 +2149,26 @@ if not df.empty:
             )
         )
 
-    # 4) Flow / participation with relative volume
+    # 4) Enhanced Flow / participation with volume analysis
     vol_sma = safe_last(volume.rolling(20).mean(), default=0.0)
     vol_last = safe_last(volume, default=0.0)
     rel_vol = vol_last / max(vol_sma, 1e-9) if vol_sma > 0 else 1.0
-    if rel_vol >= 1.15:
+    
+    # Volume spike detection
+    volume_spike = rel_vol >= 1.5
+    
+    if volume_spike:
         if obv_slope > 0:
-            long_pts += 10
+            long_pts += 12
+            bullish_reasons.append(tr("Volume spike with positive flow", "جهش حجم با جریان مثبت"))
         elif obv_slope < 0:
-            short_pts += 10
+            short_pts += 12
+            bearish_reasons.append(tr("Volume spike with negative flow", "جهش حجم با جریان منفی"))
+    elif rel_vol >= 1.15:
+        if obv_slope > 0:
+            long_pts += 8
+        elif obv_slope < 0:
+            short_pts += 8
     else:
         if obv_slope > 0:
             long_pts += 4
@@ -2144,14 +2216,21 @@ if not df.empty:
         short_pts += 15
         bearish_reasons.append(tr(f"Higher TF ({higher_tf}) trend is down", f"Higher TF ({higher_tf}) trend is down"))
 
-    # 7) Sentiment Analysis (if enabled)
+    # 7) Sentiment Analysis (if enabled) - SEPARATE FROM MAIN SIGNAL
+    # Note: Sentiment analysis now displayed separately and does NOT affect main signal
+    sentiment_signal = "NEUTRAL"
+    sentiment_reason = tr("No sentiment data", "داده‌ای سنتیمنت موجود نیست")
+    sentiment_confidence = 0.0
+    
     if sentiment_data:
         if sentiment_data['overall'] == 'bullish':
-            long_pts += sentiment_impact_score
-            bullish_reasons.append(tr(f"Market sentiment bullish ({sentiment_data['confidence']:.1f})", f"سنتیمنت بازار صعودی ({sentiment_data['confidence']:.1f})"))
+            sentiment_signal = "BUY"
+            sentiment_reason = tr(f"Market sentiment bullish ({sentiment_data['confidence']:.1f})", f"سنتیمنت بازار صعودی ({sentiment_data['confidence']:.1f})")
+            sentiment_confidence = sentiment_data['confidence']
         elif sentiment_data['overall'] == 'bearish':
-            short_pts += abs(sentiment_impact_score)
-            bearish_reasons.append(tr(f"Market sentiment bearish ({sentiment_data['confidence']:.1f})", f"سنتیمنت بازار نزولی ({sentiment_data['confidence']:.1f})"))
+            sentiment_signal = "SELL"
+            sentiment_reason = tr(f"Market sentiment bearish ({sentiment_data['confidence']:.1f})", f"سنتیمنت بازار نزولی ({sentiment_data['confidence']:.1f})")
+            sentiment_confidence = sentiment_data['confidence']
 
     # --- Per-method signal box (technical + fundamental) ---
     prev_high_20 = safe_last(high.shift(1).rolling(20).max(), default=curr_price)
@@ -2265,13 +2344,12 @@ if not df.empty:
             )
     method_signals.append(("ai_branch", tr("AI Branch", "AI Branch"), ai_sig, f"[{ai_source}] {ai_reason}"))
 
-    # Core signal is driven by weighted methods and recalculated on every refresh.
-    # Fundamental analysis is displayed separately and does NOT affect the main signal
+    # Enhanced Core signal calculation with improved thresholds
     method_weights = {
-        "price_action": 1.8,
-        "macd": 1.0,
-        "market_structure": 2.4,
-        "trend_follow": 3.0,
+        "price_action": 2.2,      # Increased weight for price action
+        "macd": 1.2,            # Slightly increased
+        "market_structure": 2.8,    # Increased for structure importance
+        "trend_follow": 3.2,       # Highest weight for trend
     }
     core_methods = method_signals[:4]
     method_count = len(core_methods)
@@ -2282,19 +2360,53 @@ if not df.empty:
     total_core_weight = sum(method_weights.get(code, 1.0) for code, _, _, _ in core_methods)
     weight_edge = buy_weight - sell_weight
     agreement_pct = (max(buy_weight, sell_weight) / max(total_core_weight, 1e-9)) * 100.0
+    
+    # Calculate signal strength based on multiple factors
+    signal_strength = abs(weight_edge) / total_core_weight
+    consensus_strength = max(buy_votes, sell_votes) / method_count
+    
+    # Enhanced signal determination with stricter thresholds
     signal = "NEUTRAL"
-    if buy_weight >= total_core_weight * 0.92:
-        signal = "VERY STRONG BUY"
-    elif sell_weight >= total_core_weight * 0.92:
-        signal = "VERY STRONG SELL"
-    elif buy_weight >= total_core_weight * 0.74 and sell_weight <= total_core_weight * 0.08:
-        signal = "STRONG BUY"
-    elif sell_weight >= total_core_weight * 0.74 and buy_weight <= total_core_weight * 0.08:
-        signal = "STRONG SELL"
-    elif buy_weight > sell_weight and buy_weight >= total_core_weight * 0.52:
-        signal = "BUY"
-    elif sell_weight > buy_weight and sell_weight >= total_core_weight * 0.52:
-        signal = "SELL"
+    
+    # Very Strong signals require both weight and consensus
+    if signal_strength >= 0.85 and consensus_strength >= 0.75:
+        if buy_weight > sell_weight:
+            signal = "VERY STRONG BUY"
+        else:
+            signal = "VERY STRONG SELL"
+    
+    # Strong signals
+    elif signal_strength >= 0.65 and consensus_strength >= 0.6:
+        if buy_weight > sell_weight and sell_weight <= total_core_weight * 0.15:
+            signal = "STRONG BUY"
+        elif sell_weight > buy_weight and buy_weight <= total_core_weight * 0.15:
+            signal = "STRONG SELL"
+    
+    # Regular signals with better filtering
+    elif signal_strength >= 0.45 and consensus_strength >= 0.5:
+        if buy_weight > sell_weight:
+            signal = "BUY"
+        elif sell_weight > buy_weight:
+            signal = "SELL"
+    
+    # Additional confirmation using bias score
+    bias_score = long_pts - short_pts
+    bias_threshold = 15  # Minimum bias for signal
+    
+    # Apply bias filter for weak signals
+    if signal in ["BUY", "SELL"] and abs(bias_score) < bias_threshold:
+        signal = "NEUTRAL"
+        bullish_reasons.append(tr("Signal filtered: insufficient bias", "سیگنال فیلتر شد: بایاس ناکافی"))
+        bearish_reasons.append(tr("Signal filtered: insufficient bias", "سیگنال فیلتر شد: بایاس ناکافی"))
+    
+    # Final confirmation check
+    if signal != "NEUTRAL":
+        # Ensure minimum agreement from core methods
+        min_agreement = 0.6  # 60% minimum agreement
+        if consensus_strength < min_agreement:
+            signal = "NEUTRAL"
+            bullish_reasons.append(tr("Signal filtered: low consensus", "سیگنال فیلتر شد: اجماع پایین"))
+            bearish_reasons.append(tr("Signal filtered: low consensus", "سیگنال فیلتر شد: اجماع پایین"))
 
     # Fallback to directional trend when votes are low but one-sided.
     if signal == "NEUTRAL":
@@ -2588,19 +2700,113 @@ if not df.empty:
         conf_tag = tr("Medium", "متوسط")
     c5.metric(T["confidence"], f"{confidence:.1f}%", conf_tag)
 
-    c6, c7, c8 = st.columns([1.2, 1, 1])
+    # Create columns for main signal and sentiment signal
+    c6, c6_sentiment, c7, c8 = st.columns([1.2, 1.0, 1, 1])
+    
     with c6:
         signal_class = "pulse-animation" if enable_animations else ""
+        
+        # Enhanced signal display with detailed information
         if signal in ["BUY", "STRONG BUY", "VERY STRONG BUY"]:
             if signal in ["STRONG BUY", "VERY STRONG BUY"] and enable_audio_alerts:
                 play_alert_sound("strong_buy")
-            st.markdown(f"<div class='signal-buy {signal_class}'><h3>{signal_display}</h3><p>{T['bias_score']}: {bias_score:.1f}</p></div>", unsafe_allow_html=True)
+            
+            # Create detailed signal info
+            signal_emoji = "🚀" if signal == "VERY STRONG BUY" else "📈" if signal == "STRONG BUY" else "⬆️"
+            signal_color = "#21c77a"
+            
+            signal_html = f"""
+            <div class='signal-buy {signal_class}'>
+                <div style='font-size: 2.5em; margin-bottom: 10px;'>{signal_emoji}</div>
+                <h3 style='color: {signal_color}; margin: 5px 0;'>{signal_display}</h3>
+                <p style='margin: 5px 0;'><strong>{T['bias_score']}:</strong> {bias_score:.1f}</p>
+                <p style='margin: 5px 0;'><strong>Signal Strength:</strong> {signal_strength:.1%}</p>
+                <p style='margin: 5px 0;'><strong>Consensus:</strong> {consensus_strength:.1%}</p>
+                <p style='margin: 5px 0; font-size: 0.9em; opacity: 0.8;'>{len(bullish_reasons)} confirmations</p>
+            </div>
+            """
+            st.markdown(signal_html, unsafe_allow_html=True)
+            
         elif signal in ["SELL", "STRONG SELL", "VERY STRONG SELL"]:
             if signal in ["STRONG SELL", "VERY STRONG SELL"] and enable_audio_alerts:
                 play_alert_sound("strong_sell")
-            st.markdown(f"<div class='signal-sell {signal_class}'><h3>{signal_display}</h3><p>{T['bias_score']}: {bias_score:.1f}</p></div>", unsafe_allow_html=True)
+            
+            signal_emoji = "📉" if signal == "VERY STRONG SELL" else "⬇️" if signal == "STRONG SELL" else "🔻"
+            signal_color = "#ff5a7a"
+            
+            signal_html = f"""
+            <div class='signal-sell {signal_class}'>
+                <div style='font-size: 2.5em; margin-bottom: 10px;'>{signal_emoji}</div>
+                <h3 style='color: {signal_color}; margin: 5px 0;'>{signal_display}</h3>
+                <p style='margin: 5px 0;'><strong>{T['bias_score']}:</strong> {bias_score:.1f}</p>
+                <p style='margin: 5px 0;'><strong>Signal Strength:</strong> {signal_strength:.1%}</p>
+                <p style='margin: 5px 0;'><strong>Consensus:</strong> {consensus_strength:.1%}</p>
+                <p style='margin: 5px 0; font-size: 0.9em; opacity: 0.8;'>{len(bearish_reasons)} confirmations</p>
+            </div>
+            """
+            st.markdown(signal_html, unsafe_allow_html=True)
+            
         else:
-            st.markdown(f"<div class='signal-neutral'><h3>{T['signal_wait']}</h3><p>{T['bias_score']}: {bias_score:.1f}</p></div>", unsafe_allow_html=True)
+            signal_html = f"""
+            <div class='signal-neutral'>
+                <div style='font-size: 2.5em; margin-bottom: 10px;'>⏸️</div>
+                <h3 style='margin: 5px 0;'>{T['signal_wait']}</h3>
+                <p style='margin: 5px 0;'><strong>{T['bias_score']}:</strong> {bias_score:.1f}</p>
+                <p style='margin: 5px 0;'><strong>Signal Strength:</strong> {signal_strength:.1%}</p>
+                <p style='margin: 5px 0; font-size: 0.9em; opacity: 0.8;'>Waiting for confirmation</p>
+            </div>
+            """
+            st.markdown(signal_html, unsafe_allow_html=True)
+
+    # Sentiment Signal Box (Separate from Main Signal)
+    with c6_sentiment:
+        if sentiment_data:
+            sentiment_class = "pulse-animation" if enable_animations else ""
+            
+            if sentiment_signal == "BUY":
+                sentiment_emoji = "📰"
+                sentiment_color = "#21c77a"
+                sentiment_bg = "rgba(33, 199, 122, 0.1)"
+            elif sentiment_signal == "SELL":
+                sentiment_emoji = "📰"
+                sentiment_color = "#ff5a7a"
+                sentiment_bg = "rgba(255, 90, 122, 0.1)"
+            else:
+                sentiment_emoji = "📰"
+                sentiment_color = "#8a96ad"
+                sentiment_bg = "rgba(138, 150, 173, 0.1)"
+            
+            sentiment_html = f"""
+            <div class='app-card' style='background: {sentiment_bg}; backdrop-filter: blur(10px); border: 1px solid {sentiment_color}20;'>
+                <div style='text-align: center; padding: 15px;'>
+                    <div style='font-size: 1.8em; margin-bottom: 8px;'>{sentiment_emoji}</div>
+                    <h4 style='color: {sentiment_color}; margin: 5px 0; font-size: 1.1em;'>{T['sentiment_analysis']}</h4>
+                    <p style='margin: 8px 0; font-weight: 600; color: {sentiment_color};'>
+                        {sentiment_signal}
+                    </p>
+                    <p style='margin: 5px 0; font-size: 0.9em; opacity: 0.9;'>{sentiment_reason}</p>
+                    <p style='margin: 5px 0; font-size: 0.85em; opacity: 0.8;'>
+                        Confidence: {sentiment_confidence:.1f}%
+                    </p>
+                    <p style='margin: 5px 0; font-size: 0.85em; opacity: 0.7;'>
+                        Based on {sentiment_data.get('articles_analyzed', 0)} news articles
+                    </p>
+                </div>
+            </div>
+            """
+            st.markdown(sentiment_html, unsafe_allow_html=True)
+        else:
+            neutral_html = f"""
+            <div class='app-card' style='background: rgba(138, 150, 173, 0.1); backdrop-filter: blur(10px);'>
+                <div style='text-align: center; padding: 15px;'>
+                    <div style='font-size: 1.8em; margin-bottom: 8px;'>📰</div>
+                    <h4 style='color: #8a96ad; margin: 5px 0; font-size: 1.1em;'>{T['sentiment_analysis']}</h4>
+                    <p style='margin: 8px 0; font-weight: 600; color: #8a96ad;'>NEUTRAL</p>
+                    <p style='margin: 5px 0; font-size: 0.9em; opacity: 0.8;'>Enable sentiment analysis in sidebar</p>
+                </div>
+            </div>
+            """
+            st.markdown(neutral_html, unsafe_allow_html=True)
 
     with c7:
         st.subheader(T["risk"])
@@ -2633,32 +2839,6 @@ if not df.empty:
     show_corr_block = rm5.checkbox(tr("Correlation", "همبستگی"), value=False, key="show_corr_block")
     show_journal_block = rm6.checkbox(tr("Journal", "ژورنال"), value=False, key="show_journal_block")
     show_logic_block = rm7.checkbox(tr("Logic", "منطق"), value=False, key="show_logic_block")
-
-    # --- Sentiment Analysis Display ---
-    if sentiment_data and show_sentiment_block:
-        sentiment_color = "#21c77a" if sentiment_data['overall'] == 'bullish' else "#ff5a7a" if sentiment_data['overall'] == 'bearish' else "#8a96ad"
-        sentiment_display = T[sentiment_data['overall']] if sentiment_data['overall'] in T else sentiment_data['overall']
-
-        st.markdown(f"""
-        <div class='app-card' style='border-left: 5px solid {sentiment_color};'>
-            <h4 style='margin:0; color: var(--txt);'>{T['sentiment_analysis']}</h4>
-            <div style='display: flex; justify-content: space-between; align-items: center; margin-top: 10px;'>
-                <div>
-                    <strong>{T['overall_sentiment']}:</strong>
-                    <span style='color: {sentiment_color}; font-weight: 600;'>{sentiment_display.upper()}</span>
-                </div>
-                <div>
-                    <strong>{T['sentiment_score']}:</strong> {sentiment_data['score']:.2f}
-                </div>
-                <div>
-                    <strong>{T['sentiment_confidence']}:</strong> {sentiment_data['confidence']:.1f}%
-                </div>
-                <div>
-                    <strong>{T['news_count']}:</strong> {sentiment_data['count']}
-                </div>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
 
     # --- Fundamental Analysis Display ---
     if show_fundamental_block:
