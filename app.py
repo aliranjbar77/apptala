@@ -2349,19 +2349,26 @@ if not df.empty:
 
     macd_sig = "NEUTRAL"
     macd_reason = tr("[Source: MACD] Flat momentum", "[Source: MACD] Flat momentum")
-    if len(macd_hist.dropna()) > 2:
-        if macd_hist.iloc[-1] > 0 and macd_hist.iloc[-2] <= 0:
+    if len(macd_hist.dropna()) > 2 and len(macd_line.dropna()) > 2 and len(macd_signal.dropna()) > 2:
+        # Get last non-NaN values
+        last_hist = macd_hist.dropna().iloc[-1]
+        last_hist_prev = macd_hist.dropna().iloc[-2] if len(macd_hist.dropna()) > 1 else 0
+        last_line = macd_line.dropna().iloc[-1]
+        last_signal = macd_signal.dropna().iloc[-1]
+        
+        if last_hist > 0 and last_hist_prev <= 0:
             macd_sig = "BUY"
             macd_reason = tr("[Source: MACD] Histogram crossed above zero", "[Source: MACD] Histogram crossed above zero")
-        elif macd_hist.iloc[-1] < 0 and macd_hist.iloc[-2] >= 0:
+        elif last_hist < 0 and last_hist_prev >= 0:
             macd_sig = "SELL"
             macd_reason = tr("[Source: MACD] Histogram crossed below zero", "[Source: MACD] Histogram crossed below zero")
-        elif macd_hist.iloc[-1] > 0 and safe_last(macd_line) > safe_last(macd_signal):
-            macd_sig = "BUY"
-            macd_reason = tr("[Source: MACD] Positive histogram with bullish line structure", "[Source: MACD] Positive histogram with bullish line structure")
-        elif macd_hist.iloc[-1] < 0 and safe_last(macd_line) < safe_last(macd_signal):
-            macd_sig = "SELL"
-            macd_reason = tr("[Source: MACD] Negative histogram with bearish line structure", "[Source: MACD] Negative histogram with bearish line structure")
+        elif not pd.isna(last_hist) and not pd.isna(last_line) and not pd.isna(last_signal):
+            if last_hist > 0 and last_line > last_signal:
+                macd_sig = "BUY"
+                macd_reason = tr("[Source: MACD] Positive histogram with bullish line structure", "[Source: MACD] Positive histogram with bullish line structure")
+            elif last_hist < 0 and last_line < last_signal:
+                macd_sig = "SELL"
+                macd_reason = tr("[Source: MACD] Negative histogram with bearish line structure", "[Source: MACD] Negative histogram with bearish line structure")
 
     bb_mid = safe_last(bb.bollinger_mavg(), default=curr_price)
     structure_sig = str(market_structure.get("signal", "NEUTRAL"))
