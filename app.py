@@ -2170,19 +2170,19 @@ if not df.empty:
     macd_line_series = macd_indicator.macd()
     
     # Get last values for comparison
-    macd_signal = safe_last(macd_signal_series)
-    macd_histogram = safe_last(macd_histogram_series)
-    macd_line = safe_last(macd_line_series)
+    macd_signal_val = safe_last(macd_signal_series)
+    macd_histogram_val = safe_last(macd_histogram_series)
+    macd_line_val = safe_last(macd_line_series)
     
-    if macd_histogram > 0 and macd_line > macd_signal:
+    if macd_histogram_val > 0 and macd_line_val > macd_signal_val:
         long_pts += 9
         bullish_reasons.append(tr("MACD bullish crossover", "کراس‌اور صعودی MACD"))
-    elif macd_histogram < 0 and macd_line < macd_signal:
+    elif macd_histogram_val < 0 and macd_line_val < macd_signal_val:
         short_pts += 9
         bearish_reasons.append(tr("MACD bearish crossover", "کراس‌اور نزولی MACD"))
-    elif macd_histogram > 0:
+    elif macd_histogram_val > 0:
         long_pts += 4
-    elif macd_histogram < 0:
+    elif macd_histogram_val < 0:
         short_pts += 4
 
     # 3) Enhanced Market structure with Bollinger Bands
@@ -2369,6 +2369,10 @@ if not df.empty:
             elif last_hist < 0 and last_line < last_signal:
                 macd_sig = "SELL"
                 macd_reason = tr("[Source: MACD] Negative histogram with bearish line structure", "[Source: MACD] Negative histogram with bearish line structure")
+    else:
+        # Not enough data for MACD analysis
+        macd_sig = "NEUTRAL"
+        macd_reason = tr("[Source: MACD] Insufficient data", "[Source: MACD] داده ناکافی")
 
     bb_mid = safe_last(bb.bollinger_mavg(), default=curr_price)
     structure_sig = str(market_structure.get("signal", "NEUTRAL"))
