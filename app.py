@@ -579,9 +579,23 @@ def get_market_structure(
         }
     
     lb = min(lookback, len(cs))
+    if lb < 10:  # Ensure we have enough data
+        return {
+            "support": 0.0,
+            "resistance": 0.0,
+            "near_support": False,
+            "near_resistance": False,
+            "round_bias": "NEUTRAL",
+            "signal": "NEUTRAL",
+            "reason": "insufficient data",
+            "strength": 0.0,
+            "volume_confirmation": False,
+            "market_volatility": 0.0
+        }
+    
     window_high = hs.iloc[-lb:]
     window_low = ls.iloc[-lb:]
-    current = float(cs.iloc[-1])
+    current = float(cs.iloc[-1]) if len(cs) > 0 else 0.0
     support = float(window_low.quantile(0.15))  # More aggressive support level
     resistance = float(window_high.quantile(0.85))  # More aggressive resistance level
     rng = max(resistance - support, max(current * 0.002, 1e-6))
@@ -2041,6 +2055,19 @@ if not df.empty:
         df.at[last_idx, "Close"] = curr_price
         df.at[last_idx, "High"] = max(last_high, curr_price)
         df.at[last_idx, "Low"] = min(last_low, curr_price)
+        df = calculate_patterns(df)
+
+    # Initialize indicators - ensure we have enough data
+    if len(df) < 50:
+        st.error("Not enough data for analysis. Please select a longer timeframe or wait for more data.")
+        st.stop()
+    
+    close = df["Close"]
+    high = df["High"]
+    low = df["Low"]
+    volume = df["Volume"] if "Volume" in df.columns else pd.Series(index=df.index, dtype=float)
+    
+    # Calculate indicators - keep as Series
     rsi = RSIIndicator(close).rsi()
     ema50 = EMAIndicator(close, window=50).ema_indicator()
     ema200 = EMAIndicator(close, window=200).ema_indicator()
@@ -2056,9 +2083,9 @@ if not df.empty:
     bb = BollingerBands(close)
     obv = calc_obv(close, volume)
 
-    # Get current values for calculations
-    curr_rsi = float(rsi.iloc[-1])
-    curr_atr = float(atr.iloc[-1])
+    # Get current values for calculations - with safety checks
+    curr_rsi = float(rsi.iloc[-1]) if len(rsi.dropna()) > 0 else 50.0
+    curr_atr = float(atr.iloc[-1]) if len(atr.dropna()) > 0 else 0.0
     curr_adx = safe_last(adx)
     curr_macd_hist = safe_last(macd_hist_series)
 
@@ -2072,7 +2099,7 @@ if not df.empty:
     # Correlation with DXY
     correlation = 0.0
     curr_dxy = 0.0
-    if not dxy.empty and "Close" in dxy.columns:
+    if not dxy.empty and "Close" in dxy.columns and len(dxy) > 10:
         curr_dxy = float(dxy["Close"].iloc[-1])
         common_idx = df.index.intersection(dxy.index)
         if len(common_idx) > 3:
