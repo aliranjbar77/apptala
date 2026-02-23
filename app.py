@@ -6,7 +6,6 @@ import plotly.graph_objects as go
 import requests
 import streamlit as st
 import yfinance as yf
-from plotly.subplots import make_subplots
 from streamlit_autorefresh import st_autorefresh
 from ta.momentum import RSIIndicator
 from ta.trend import EMAIndicator, MACD
@@ -538,47 +537,6 @@ def render_signal_micro_chart(engine_signals: dict, theme: str, title: str):
     st.plotly_chart(fig, use_container_width=True)
 
 
-def render_main_chart(df: pd.DataFrame, classic: dict, theme: str, labels: dict[str, str]):
-    fig = make_subplots(
-        rows=3,
-        cols=1,
-        shared_xaxes=True,
-        vertical_spacing=0.03,
-        row_heights=[0.6, 0.2, 0.2],
-        subplot_titles=("XAUUSD", labels["rsi"], labels["macd"]),
-    )
-
-    fig.add_trace(
-        go.Candlestick(
-            x=df.index,
-            open=df["Open"],
-            high=df["High"],
-            low=df["Low"],
-            close=df["Close"],
-            increasing_line_color="#16c784",
-            decreasing_line_color="#ff4d6d",
-            name="Price",
-        ),
-        row=1,
-        col=1,
-    )
-
-    fig.add_trace(go.Scatter(x=df.index, y=classic["ema20"], name="EMA20", line=dict(color="#ffb703", width=1)), row=1, col=1)
-    fig.add_trace(go.Scatter(x=df.index, y=classic["ema50"], name="EMA50", line=dict(color="#5bc0eb", width=1)), row=1, col=1)
-    fig.add_trace(go.Scatter(x=df.index, y=classic["ema200"], name="EMA200", line=dict(color="#f15bb5", width=1.6)), row=1, col=1)
-
-    fig.add_trace(go.Scatter(x=df.index, y=classic["rsi"], name="RSI", line=dict(color="#9b5de5")), row=2, col=1)
-    fig.add_hline(y=70, line_dash="dash", line_color="#ff4d6d", row=2, col=1)
-    fig.add_hline(y=30, line_dash="dash", line_color="#16c784", row=2, col=1)
-
-    fig.add_trace(go.Scatter(x=df.index, y=classic["macd_line"], name="MACD", line=dict(color="#80ed99")), row=3, col=1)
-    fig.add_trace(go.Scatter(x=df.index, y=classic["macd_signal"], name="Signal", line=dict(color="#f28482")), row=3, col=1)
-    fig.add_trace(go.Bar(x=df.index, y=classic["macd_hist"], name="Hist", marker_color="#8ea4c9"), row=3, col=1)
-
-    fig.update_layout(template="plotly_white" if theme == "Light" else "plotly_dark", height=820, margin=dict(l=20, r=20, t=40, b=20))
-    st.plotly_chart(fig, use_container_width=True)
-
-
 def render_fundamental_box(labels: dict[str, str]) -> None:
     dxy = safe_download("DX-Y.NYB", period="1mo", interval="1h")
     silver = safe_download("SI=F", period="3mo", interval="1d")
@@ -707,18 +665,6 @@ def render_poursamadi_box(porsamadi: dict, labels: dict[str, str]) -> None:
     st.markdown(mini_box_close_html(), unsafe_allow_html=True)
 
 
-def render_classic_box(classic: dict, labels: dict[str, str]) -> None:
-    st.markdown(mini_box_open_html(), unsafe_allow_html=True)
-    st.markdown(f"### {labels['classic_engine']}")
-    st.write(f"{labels['price_action']}: **{classic['price_action']}**")
-    st.write(f"{labels['rsi']}: **{classic['momentum']}**")
-    st.write(f"{labels['trend']}: **{classic['trend']}**")
-    st.write(f"{labels['macd']}: **{classic['macd']}**")
-    st.write(f"{labels['bollinger']}: **{classic['bollinger']}**")
-    st.write(f"{labels['support_resistance']}: {classic['support']:.2f} / {classic['resistance']:.2f}")
-    st.markdown(mini_box_close_html(), unsafe_allow_html=True)
-
-
 def render_signal_monitor(engine_signals: dict, theme: str, labels: dict[str, str]) -> None:
     st.markdown(mini_box_open_html(), unsafe_allow_html=True)
     st.markdown(f"### {labels['signal_monitor']}")
@@ -783,24 +729,13 @@ def main() -> None:
     render_live_price_box(live_price, price_change, source, final_signal, confidence, labels)
     st.caption(f"Timeframe: {timeframe} | HTF: {htf_interval}")
 
-    col_a, col_b = st.columns([1, 1])
-
-    with col_a:
-        render_poursamadi_box(porsamadi, labels)
-
-    with col_b:
-        render_classic_box(classic, labels)
+    render_poursamadi_box(porsamadi, labels)
 
     render_signal_monitor(engine_signals, theme, labels)
 
     render_fundamental_box(labels)
 
-    tab1, tab2 = st.tabs([labels["main_chart"], labels["engine_details"]])
-    with tab1:
-        render_main_chart(df, classic, theme, labels)
-
-    with tab2:
-        render_engine_details_table(engine_signals)
+    render_engine_details_table(engine_signals)
 
 
 if __name__ == "__main__":
