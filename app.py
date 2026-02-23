@@ -16,6 +16,7 @@ import time
 from pathlib import Path
 from zoneinfo import ZoneInfo
 import os
+from streamlit_autorefresh import st_autorefresh
 
 # --- Audio Alert Function ---
 def play_alert_sound(alert_type: str = "signal"):
@@ -406,6 +407,50 @@ def safe_yf_download(ticker: str, period: str, interval: str, retries: int = 3) 
     return pd.DataFrame()
 
 
+def get_gold_price_from_api() -> tuple[float | None, float | None]:
+    """Get live gold price from GoldAPI with proper error handling."""
+    try:
+        api_key = st.secrets.get("GOLD_API_KEY", "")
+        if not api_key:
+            st.warning("GoldAPI key not found in secrets. Using fallback data source.")
+            return None, None
+            
+        headers = {
+            "x-access-token": api_key,
+            "Content-Type": "application/json"
+        }
+        
+        response = requests.get(
+            "https://www.goldapi.io/api/XAU/USD",
+            headers=headers,
+            timeout=10
+        )
+        
+        if response.status_code == 200:
+            data = response.json()
+            if "price" in data and "price_gram_24k" in data:
+                current_price = float(data["price"])
+                previous_price = float(data.get("prev_day_price", current_price))
+                price_change = current_price - previous_price
+                return current_price, price_change
+            else:
+                st.error("Invalid response format from GoldAPI")
+                return None, None
+        else:
+            st.error(f"GoldAPI error: {response.status_code}")
+            return None, None
+            
+    except requests.exceptions.Timeout:
+        st.error("GoldAPI request timeout")
+        return None, None
+    except requests.exceptions.RequestException as e:
+        st.error(f"GoldAPI request error: {e}")
+        return None, None
+    except Exception as e:
+        st.error(f"Unexpected error fetching gold price: {e}")
+        return None, None
+
+
 def get_live_price(symbol: str) -> float | None:
     """Best-effort live price: fast_info first, then 1m close fallback."""
     try:
@@ -691,6 +736,140 @@ def get_market_structure(
         "volume_confirmation": volume_confirmation,
         "market_volatility": market_volatility
     }
+
+
+def generate_signals_with_live_data(curr_price: float, close: pd.Series, high: pd.Series, low: pd.Series, 
+                                   rsi: pd.Series, ema50: pd.Series, ema200: pd.Series, ema20: pd.Series,
+                                   macd_line_series: pd.Series, macd_signal_series: pd.Series, macd_hist_series: pd.Series,
+                                   market_structure: dict) -> dict:
+    """Generate trading signals based on live price data."""
+    
+    signals = {
+        "price_action": "NEUTRAL",
+        "price_action_reason": "No clear pattern",
+        "momentum": "NEUTRAL", 
+        "momentum_reason": "No momentum signal",
+        "trend": "NEUTRAL",
+        "trend_reason": "No trend signal",
+        "overall": "NEUTRAL",
+        "overall_reason": "No signal",
+        "confidence": 0.0
+    }
+    
+    # Price Action Signal (based on current price vs structure)
+    support = market_structure.get("support", 0.0)
+    resistance = market_structure.get("resistance", 0.0)
+    
+    if curr_price > resistance * 1.002:  # 0.2% above resistance
+        signals["price_action"] = "BUY"
+        signals["price_action_reason"] = f"Price broke above resistance (${resistance:.2f})"
+    elif curr_price < support * 0.998:  # 0.2% below support
+        signals["price_action"] = "SELL"
+        signals["price_action_reason"] = f"Price broke below support (${support:.2f})"
+    elif curr_price > support and curr_price < resistance:
+        if curr_price > (support + resistance) / 2:
+            signals["price_action"] = "BUY"
+            signals["price_action_reason"] = "Price in upper half of range"
+        else:
+            signals["price_action"] = "SELL"
+            signals["price_action_reason"] = "Price in lower half of range"
+    
+    # Momentum Signal (RSI based)
+    curr_rsi = float(rsi.iloc[-1]) if len(rsi.dropna()) > 0 else 50.0
+    if curr_rsi > 70:
+        signals["momentum"] = "SELL"
+        signals["momentum_reason"] = f"RSI overbought ({curr_rsi:.1f})"
+    elif curr_rsi < 30:
+        signals["momentum"] = "BUY"
+        signals["momentum_reason"] = f"RSI oversold ({curr_rsi:.1f})"
+    elif 50 < curr_rsi < 70:
+        signals["momentum"] = "BUY"
+        signals["momentum_reason"] = f"RSI bullish zone ({curr_rsi:.1f})"
+    elif 30 < curr_rsi < 50:
+        signals["momentum"] = "SELL"
+        signals["momentum_reason"] = f"RSI bearish zone ({curr_rsi:.1f})"
+    
+    # Trend Signal (EMA based)
+    curr_ema50 = float(ema50.iloc[-1]) if len(ema50.dropna()) > 0 else curr_price
+    curr_ema200 = float(ema200.iloc[-1]) if len(ema200.dropna()) > 0 else curr_price
+    curr_ema20 = float(ema20.iloc[-1]) if len(ema20.dropna()) > 0 else curr_price
+    
+    if curr_price > curr_ema200 and curr_ema20 > curr_ema50:
+        signals["trend"] = "BUY"
+        signals["trend_reason"] = "Strong uptrend (price > EMA200 > EMA50)"
+    elif curr_price < curr_ema200 and curr_ema20 < curr_ema50:
+        signals["trend"] = "SELL"
+        signals["trend_reason"] = "Strong downtrend (price < EMA200 < EMA50)"
+    elif curr_price > curr_ema200:
+        signals["trend"] = "BUY"
+        signals["trend_reason"] = "Uptrend (price > EMA200)"
+    elif curr_price < curr_ema200:
+        signals["trend"] = "SELL"
+        signals["trend_reason"] = "Downtrend (price < EMA200)"
+    
+    # MACD Signal
+    macd_signal = "NEUTRAL"
+    macd_reason = "No MACD signal"
+    
+    if len(macd_hist_series.dropna()) > 2:
+        curr_macd_hist = float(macd_hist_series.iloc[-1])
+        curr_macd_line = float(macd_line_series.iloc[-1])
+        curr_macd_signal_line = float(macd_signal_series.iloc[-1])
+        
+        if curr_macd_hist > 0 and curr_macd_line > curr_macd_signal_line:
+            macd_signal = "BUY"
+            macd_reason = "MACD bullish structure"
+        elif curr_macd_hist < 0 and curr_macd_line < curr_macd_signal_line:
+            macd_signal = "SELL"
+            macd_reason = "MACD bearish structure"
+    
+    # Overall Signal (weighted combination)
+    buy_votes = 0
+    sell_votes = 0
+    reasons = []
+    
+    if signals["price_action"] == "BUY":
+        buy_votes += 2
+        reasons.append(signals["price_action_reason"])
+    elif signals["price_action"] == "SELL":
+        sell_votes += 2
+        reasons.append(signals["price_action_reason"])
+    
+    if signals["momentum"] == "BUY":
+        buy_votes += 1
+        reasons.append(signals["momentum_reason"])
+    elif signals["momentum"] == "SELL":
+        sell_votes += 1
+        reasons.append(signals["momentum_reason"])
+    
+    if signals["trend"] == "BUY":
+        buy_votes += 2
+        reasons.append(signals["trend_reason"])
+    elif signals["trend"] == "SELL":
+        sell_votes += 2
+        reasons.append(signals["trend_reason"])
+    
+    if macd_signal == "BUY":
+        buy_votes += 1
+        reasons.append(macd_reason)
+    elif macd_signal == "SELL":
+        sell_votes += 1
+        reasons.append(macd_reason)
+    
+    # Determine overall signal
+    if buy_votes >= 4:
+        signals["overall"] = "BUY"
+        signals["confidence"] = min(buy_votes / 6.0, 1.0)
+    elif sell_votes >= 4:
+        signals["overall"] = "SELL"
+        signals["confidence"] = min(sell_votes / 6.0, 1.0)
+    else:
+        signals["overall"] = "NEUTRAL"
+        signals["confidence"] = 0.5
+    
+    signals["overall_reason"] = " | ".join(reasons[:3])  # Top 3 reasons
+    
+    return signals
 
 
 def get_higher_tf_trend(df_higher: pd.DataFrame) -> tuple[str | None, float]:
@@ -2028,24 +2207,50 @@ if enable_backtest:
 # --- Advanced Correlation Data ---
 correlation_data = calculate_advanced_correlations(asset_name)
 
+# Auto-refresh for live price updates (every 10 seconds)
+st_autorefresh(interval=10000, limit=None, key="price_refresh")
+
 if not df.empty:
     df = calculate_patterns(df)
 
-    close = df["Close"].squeeze()
-    candle_close_price = float(close.iloc[-1])
-    # Keep price source on Yahoo symbols with stable live data.
-    price_symbol = asset_name
-    quote_candidates = [price_symbol]
-    quote_price, quote_delta, quote_source = get_fresh_quote(quote_candidates)
-    if quote_price is not None:
-        curr_price = float(quote_price)
-        price_delta_live = float(quote_delta)
+    close = df["Close"]
+    candle_close_price = float(close.iloc[-1]) if len(close) > 0 else 0.0
+    
+    # Use GoldAPI for live gold price
+    if asset_name == "GC=F":
+        gold_api_price, gold_api_change = get_gold_price_from_api()
+        if gold_api_price is not None:
+            curr_price = gold_api_price
+            price_delta_live = gold_api_change if gold_api_change is not None else 0.0
+            st.success(f"🟢 Live Gold Price: ${curr_price:.2f} (Change: {price_delta_live:+.2f})")
+        else:
+            # Fallback to Yahoo Finance
+            price_symbol = asset_name
+            quote_candidates = [price_symbol]
+            quote_price, quote_delta, quote_source = get_fresh_quote(quote_candidates)
+            if quote_price is not None:
+                curr_price = float(quote_price)
+                price_delta_live = float(quote_delta)
+            else:
+                live_price = get_live_price(price_symbol)
+                if live_price is None and price_symbol != asset_name:
+                    live_price = get_live_price(asset_name)
+                curr_price = live_price if live_price is not None else candle_close_price
+                price_delta_live = curr_price - candle_close_price
     else:
-        live_price = get_live_price(price_symbol)
-        if live_price is None and price_symbol != asset_name:
-            live_price = get_live_price(asset_name)
-        curr_price = live_price if live_price is not None else candle_close_price
-        price_delta_live = curr_price - candle_close_price
+        # For other assets, use Yahoo Finance
+        price_symbol = asset_name
+        quote_candidates = [price_symbol]
+        quote_price, quote_delta, quote_source = get_fresh_quote(quote_candidates)
+        if quote_price is not None:
+            curr_price = float(quote_price)
+            price_delta_live = float(quote_delta)
+        else:
+            live_price = get_live_price(price_symbol)
+            if live_price is None and price_symbol != asset_name:
+                live_price = get_live_price(asset_name)
+            curr_price = live_price if live_price is not None else candle_close_price
+            price_delta_live = curr_price - candle_close_price
 
     # Inject latest quote into active candle so indicators/signals run on live price.
     if len(df.index) > 0 and all(col in df.columns for col in ["Open", "High", "Low", "Close"]):
@@ -2062,10 +2267,24 @@ if not df.empty:
         st.error("Not enough data for analysis. Please select a longer timeframe or wait for more data.")
         st.stop()
     
+    # Update the last candle with live price for accurate signal generation
     close = df["Close"]
     high = df["High"]
     low = df["Low"]
     volume = df["Volume"] if "Volume" in df.columns else pd.Series(index=df.index, dtype=float)
+    
+    # Ensure live price is reflected in the data
+    if len(df.index) > 0:
+        last_idx = df.index[-1]
+        df.at[last_idx, "Close"] = curr_price
+        df.at[last_idx, "High"] = max(df.at[last_idx, "High"], curr_price)
+        df.at[last_idx, "Low"] = min(df.at[last_idx, "Low"], curr_price)
+        df = calculate_patterns(df)
+        
+        # Recalculate with updated data
+        close = df["Close"]
+        high = df["High"]
+        low = df["Low"]
     
     # Calculate indicators - keep as Series
     rsi = RSIIndicator(close).rsi()
@@ -2105,6 +2324,84 @@ if not df.empty:
         if len(common_idx) > 3:
             correlation = float(df.loc[common_idx]["Close"].corr(dxy.loc[common_idx]["Close"]))
 
+    # --- Live Price Display ---
+    st.markdown("---")
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        price_color = "#21c77a" if price_delta_live >= 0 else "#ff5a7a"
+        price_arrow = "📈" if price_delta_live >= 0 else "📉"
+        st.markdown(
+            f"""
+            <div style='background: linear-gradient(135deg, #1a1f2e 0%, #2a3244 100%); 
+                        padding: 15px; border-radius: 10px; border: 1px solid #3a4252; text-align: center;'>
+                <div style='font-size: 12px; color: #8a96ad; margin-bottom: 5px;'>Live Price</div>
+                <div style='font-size: 24px; font-weight: bold; color: {price_color};'>
+                    {price_arrow} ${curr_price:.2f}
+                </div>
+                <div style='font-size: 12px; color: {price_color};'>
+                    {price_delta_live:+.2f} ({(price_delta_live/curr_price*100):+.2f}%)
+                </div>
+            </div>
+            """, 
+            unsafe_allow_html=True
+        )
+    
+    with col2:
+        st.markdown(
+            f"""
+            <div style='background: linear-gradient(135deg, #1a1f2e 0%, #2a3244 100%); 
+                        padding: 15px; border-radius: 10px; border: 1px solid #3a4252; text-align: center;'>
+                <div style='font-size: 12px; color: #8a96ad; margin-bottom: 5px;'>RSI</div>
+                <div style='font-size: 20px; font-weight: bold; color: #ffd700;'>
+                    {curr_rsi:.1f}
+                </div>
+                <div style='font-size: 10px; color: #8a96ad;'>
+                    {'Overbought' if curr_rsi > 70 else 'Oversold' if curr_rsi < 30 else 'Neutral'}
+                </div>
+            </div>
+            """, 
+            unsafe_allow_html=True
+        )
+    
+    with col3:
+        trend_emoji = "🟢" if trend_bias == "UP" else "🔴" if trend_bias == "DOWN" else "🟡"
+        st.markdown(
+            f"""
+            <div style='background: linear-gradient(135deg, #1a1f2e 0%, #2a3244 100%); 
+                        padding: 15px; border-radius: 10px; border: 1px solid #3a4252; text-align: center;'>
+                <div style='font-size: 12px; color: #8a96ad; margin-bottom: 5px;'>Trend</div>
+                <div style='font-size: 20px; font-weight: bold; color: #ffd700;'>
+                    {trend_emoji} {trend_bias}
+                </div>
+                <div style='font-size: 10px; color: #8a96ad;'>
+                    EMA200 Bias
+                </div>
+            </div>
+            """, 
+            unsafe_allow_html=True
+        )
+    
+    with col4:
+        data_source = "🟢 GoldAPI" if asset_name == "GC=F" and gold_api_price is not None else "🟡 Yahoo Finance"
+        st.markdown(
+            f"""
+            <div style='background: linear-gradient(135deg, #1a1f2e 0%, #2a3244 100%); 
+                        padding: 15px; border-radius: 10px; border: 1px solid #3a4252; text-align: center;'>
+                <div style='font-size: 12px; color: #8a96ad; margin-bottom: 5px;'>Data Source</div>
+                <div style='font-size: 16px; font-weight: bold; color: #ffd700;'>
+                    {data_source}
+                </div>
+                <div style='font-size: 10px; color: #8a96ad;'>
+                    Auto-refresh: 10s
+                </div>
+            </div>
+            """, 
+            unsafe_allow_html=True
+        )
+    
+    st.markdown("---")
+
     # --- Enhanced Multi-factor Signal Engine ---
     long_pts = 0.0
     short_pts = 0.0
@@ -2113,6 +2410,39 @@ if not df.empty:
 
     trend_bias = "UP" if curr_price > safe_last(ema200) else "DOWN"
     market_structure = get_market_structure(high, low, close)
+    
+    # Generate live signals based on current price
+    live_signals = generate_signals_with_live_data(
+        curr_price, close, high, low, rsi, ema50, ema200, ema20,
+        macd_line_series, macd_signal_series, macd_hist_series, market_structure
+    )
+    
+    # Display live signals
+    signal_color = "#21c77a" if live_signals["overall"] == "BUY" else "#ff5a7a" if live_signals["overall"] == "SELL" else "#8a96ad"
+    signal_emoji = "🟢" if live_signals["overall"] == "BUY" else "🔴" if live_signals["overall"] == "SELL" else "🟡"
+    
+    st.markdown(
+        f"""
+        <div style='background: linear-gradient(135deg, #1a1f2e 0%, #2a3244 100%); 
+                    padding: 20px; border-radius: 15px; border: 2px solid {signal_color}; margin: 20px 0;'>
+            <div style='text-align: center; margin-bottom: 15px;'>
+                <h3 style='color: {signal_color}; margin: 0;'>{signal_emoji} LIVE SIGNAL: {live_signals["overall"]}</h3>
+                <div style='color: #8a96ad; font-size: 14px; margin-top: 5px;'>
+                    Confidence: {live_signals["confidence"]:.1%}
+                </div>
+            </div>
+            <div style='background: rgba(0,0,0,0.3); padding: 15px; border-radius: 10px;'>
+                <div style='color: #ffd700; font-weight: bold; margin-bottom: 10px;'>Signal Analysis:</div>
+                <div style='color: #8a96ad; font-size: 13px; line-height: 1.6;'>
+                    {live_signals["overall_reason"]}
+                </div>
+            </div>
+        </div>
+        """, 
+        unsafe_allow_html=True
+    )
+    
+    st.markdown("---")
     
     # Calculate additional indicators for better accuracy
     bb_upper = BollingerBands(close).bollinger_hband()
