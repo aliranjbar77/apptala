@@ -2041,29 +2041,26 @@ if not df.empty:
         df.at[last_idx, "Close"] = curr_price
         df.at[last_idx, "High"] = max(last_high, curr_price)
         df.at[last_idx, "Low"] = min(last_low, curr_price)
-        df = calculate_patterns(df)
-
-    close = df["Close"]
-    high = df["High"]
-    low = df["Low"]
-    volume = df["Volume"] if "Volume" in df.columns else pd.Series(index=df.index, dtype=float)
-
     rsi = RSIIndicator(close).rsi()
     ema50 = EMAIndicator(close, window=50).ema_indicator()
     ema200 = EMAIndicator(close, window=200).ema_indicator()
     ema20 = EMAIndicator(close, window=20).ema_indicator()
-    macd_line = MACD(close).macd()
-    macd_signal = MACD(close).macd_signal()
-    macd_hist = MACD(close).macd_diff()
+    
+    # MACD indicators - keep as Series
+    macd_line_series = MACD(close).macd()
+    macd_signal_series = MACD(close).macd_signal()
+    macd_hist_series = MACD(close).macd_diff()
+    
     adx = ADXIndicator(high, low, close).adx()
     atr = AverageTrueRange(high, low, close).average_true_range()
     bb = BollingerBands(close)
     obv = calc_obv(close, volume)
 
+    # Get current values for calculations
     curr_rsi = float(rsi.iloc[-1])
     curr_atr = float(atr.iloc[-1])
     curr_adx = safe_last(adx)
-    curr_macd_hist = safe_last(macd_hist)
+    curr_macd_hist = safe_last(macd_hist_series)
 
     ema50_slope = safe_last(ema50.diff(5))
     obv_slope = safe_last(obv.diff(5))
@@ -2343,17 +2340,17 @@ if not df.empty:
 
     macd_sig = "NEUTRAL"
     macd_reason = tr("[Source: MACD] Flat momentum", "[Source: MACD] Flat momentum")
-    if len(macd_hist.dropna()) > 2:
-        if macd_hist.iloc[-1] > 0 and macd_hist.iloc[-2] <= 0:
+    if len(macd_hist_series.dropna()) > 2:
+        if macd_hist_series.iloc[-1] > 0 and macd_hist_series.iloc[-2] <= 0:
             macd_sig = "BUY"
             macd_reason = tr("[Source: MACD] Histogram crossed above zero", "[Source: MACD] Histogram crossed above zero")
-        elif macd_hist.iloc[-1] < 0 and macd_hist.iloc[-2] >= 0:
+        elif macd_hist_series.iloc[-1] < 0 and macd_hist_series.iloc[-2] >= 0:
             macd_sig = "SELL"
             macd_reason = tr("[Source: MACD] Histogram crossed below zero", "[Source: MACD] Histogram crossed below zero")
-        elif macd_hist.iloc[-1] > 0 and macd_line.iloc[-1] > macd_signal.iloc[-1]:
+        elif macd_hist_series.iloc[-1] > 0 and macd_line_series.iloc[-1] > macd_signal_series.iloc[-1]:
             macd_sig = "BUY"
             macd_reason = tr("[Source: MACD] Positive histogram with bullish line structure", "[Source: MACD] Positive histogram with bullish line structure")
-        elif macd_hist.iloc[-1] < 0 and macd_line.iloc[-1] < macd_signal.iloc[-1]:
+        elif macd_hist_series.iloc[-1] < 0 and macd_line_series.iloc[-1] < macd_signal_series.iloc[-1]:
             macd_sig = "SELL"
             macd_reason = tr("[Source: MACD] Negative histogram with bearish line structure", "[Source: MACD] Negative histogram with bearish line structure")
 
