@@ -49,6 +49,9 @@ def get_texts(language: str) -> dict[str, str]:
         "support_resistance": "Support/Resistance",
         "fng_unavailable": "API unavailable",
         "corr_caption": "Correlation is based on daily returns over recent 3 months.",
+        "strategy_label": "Strategy",
+        "style_label": "Style",
+        "heatmap_title": "Fundamental Heatmap",
     }
     fa = {
         "lang_label": "زبان",
@@ -83,11 +86,14 @@ def get_texts(language: str) -> dict[str, str]:
         "support_resistance": "حمایت/مقاومت",
         "fng_unavailable": "API در دسترس نیست",
         "corr_caption": "همبستگی بر اساس بازدهی روزانه سه ماه اخیر محاسبه شده است.",
+        "strategy_label": "استراتژی",
+        "style_label": "استایل",
+        "heatmap_title": "هیت‌مپ فاندامنتال",
     }
     return fa if language == "فارسی" else en
 
 
-def load_css(theme: str, path: str = "styles.css") -> None:
+def load_css(theme: str, visual_style: str, path: str = "styles.css") -> None:
     css_path = Path(path)
     if not css_path.exists():
         st.warning(f"CSS file not found: {css_path}")
@@ -151,8 +157,28 @@ def load_css(theme: str, path: str = "styles.css") -> None:
     --neutral-border: rgba(100, 116, 139, 0.38);
 }
 """
+    glass_override = """
+.big-live, .mini-box {
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border-color: color-mix(in srgb, var(--line) 55%, #60a5fa 45%) !important;
+}
+.big-live::before, .mini-box::before {
+    opacity: 0.72 !important;
+}
+.metric-card {
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+}
+"""
+    minimal_override = """
+.big-live::before, .mini-box::before {
+    opacity: 0.42 !important;
+}
+"""
     active_override = light_override if theme == "Light" else dark_override
-    st.markdown(f"<style>{css}\n{active_override}</style>", unsafe_allow_html=True)
+    style_override = glass_override if visual_style == "Glass" else minimal_override
+    st.markdown(f"<style>{css}\n{active_override}\n{style_override}</style>", unsafe_allow_html=True)
 
 
 def get_timeframe_config(timeframe: str) -> tuple[str, str, int]:
@@ -466,7 +492,16 @@ def compute_classic_signals(df: pd.DataFrame, live_price: float) -> dict:
     }
 
 
-def aggregate_signal(classic: dict, porsamadi: dict) -> tuple[str, float, dict]:
+def strategy_weights(profile: str) -> dict[str, float]:
+    profiles = {
+        "Scalp": {"Price Action": 1.5, "RSI": 1.35, "Trend EMA": 0.8, "MACD": 1.25, "Poursamadi": 1.1},
+        "Intraday": {"Price Action": 1.1, "RSI": 1.0, "Trend EMA": 1.1, "MACD": 1.0, "Poursamadi": 1.25},
+        "Swing": {"Price Action": 0.9, "RSI": 0.8, "Trend EMA": 1.45, "MACD": 1.15, "Poursamadi": 1.35},
+    }
+    return profiles.get(profile, profiles["Intraday"])
+
+
+def aggregate_signal(classic: dict, porsamadi: dict, profile: str) -> tuple[str, float, dict]:
     engines = {
         "Price Action": classic["price_action"],
         "RSI": classic["momentum"],
@@ -475,21 +510,25 @@ def aggregate_signal(classic: dict, porsamadi: dict) -> tuple[str, float, dict]:
         "Poursamadi": porsamadi["signal"],
     }
 
-    buy_votes = sum(1 for v in engines.values() if v == "BUY")
-    sell_votes = sum(1 for v in engines.values() if v == "SELL")
+    w = strategy_weights(profile)
+    buy_score = sum(w.get(k, 1.0) for k, v in engines.items() if v == "BUY")
+    sell_score = sum(w.get(k, 1.0) for k, v in engines.items() if v == "SELL")
+    total = sum(w.values())
+    delta = buy_score - sell_score
+    norm = abs(delta) / max(total, 1e-6)
 
-    if buy_votes >= 4:
+    if delta >= 0.62 * total:
         sig = "STRONG BUY"
-        conf = 0.88
-    elif sell_votes >= 4:
+        conf = 0.85 + min(0.1, norm * 0.1)
+    elif delta <= -0.62 * total:
         sig = "STRONG SELL"
-        conf = 0.88
-    elif buy_votes > sell_votes:
+        conf = 0.85 + min(0.1, norm * 0.1)
+    elif delta > 0.15:
         sig = "BUY"
-        conf = 0.62 + 0.05 * (buy_votes - sell_votes)
-    elif sell_votes > buy_votes:
+        conf = 0.6 + min(0.25, norm * 0.28)
+    elif delta < -0.15:
         sig = "SELL"
-        conf = 0.62 + 0.05 * (sell_votes - buy_votes)
+        conf = 0.6 + min(0.25, norm * 0.28)
     else:
         sig = "NEUTRAL"
         conf = 0.5
@@ -535,6 +574,32 @@ def render_signal_micro_chart(engine_signals: dict, theme: str, title: str):
         yaxis=dict(range=[-1.4, 1.4], tickvals=[-1, 0, 1], ticktext=["SELL", "NEUTRAL", "BUY"]),
     )
     st.plotly_chart(fig, use_container_width=True)
+
+
+def heat_color(value: float) -> str:
+    # value in [-1, 1]
+    v = max(-1.0, min(1.0, value))
+    if v >= 0:
+        alpha = 0.16 + 0.32 * v
+        return f"rgba(34,197,94,{alpha:.3f})"
+    alpha = 0.16 + 0.32 * abs(v)
+    return f"rgba(239,68,68,{alpha:.3f})"
+
+
+def render_fundamental_heatmap(items: list[tuple[str, float | None]], title: str) -> None:
+    parts = [f"<div class='heatmap-title'>{title}</div>", "<div class='heatmap-grid'>"]
+    for name, score in items:
+        val = 0.0 if score is None else max(-1.0, min(1.0, score))
+        parts.append(
+            f"""
+<div class="heat-cell" style="background:{heat_color(val)};">
+  <div class="heat-name">{name}</div>
+  <div class="heat-score">{val:+.2f}</div>
+</div>
+"""
+        )
+    parts.append("</div>")
+    st.markdown("".join(parts), unsafe_allow_html=True)
 
 
 def render_fundamental_box(labels: dict[str, str]) -> None:
@@ -633,6 +698,15 @@ def render_fundamental_box(labels: dict[str, str]) -> None:
         unsafe_allow_html=True,
     )
 
+    dxy_score = None if dxy_last is None else max(-1.0, min(1.0, (100.0 - dxy_last) / 4.0))
+    fg_score = None if fg_value is None else max(-1.0, min(1.0, (50.0 - fg_value) / 30.0))
+    silver_score = None if corr_silver is None else max(-1.0, min(1.0, corr_silver))
+    oil_score = None if corr_oil is None else max(-1.0, min(1.0, corr_oil))
+    render_fundamental_heatmap(
+        [("DXY", dxy_score), ("Fear&Greed", fg_score), ("Silver Corr", silver_score), ("Oil Corr", oil_score)],
+        labels["heatmap_title"],
+    )
+
     st.caption(labels["corr_caption"])
     st.markdown(mini_box_close_html(), unsafe_allow_html=True)
 
@@ -660,8 +734,18 @@ def render_live_price_box(
 def render_poursamadi_box(porsamadi: dict, labels: dict[str, str]) -> None:
     st.markdown(mini_box_open_html(), unsafe_allow_html=True)
     st.markdown(f"### {labels['smc_engine']}")
-    st.markdown(f"Signal: {signal_badge_html(porsamadi['signal'])}", unsafe_allow_html=True)
-    st.write(f"دلیل: {porsamadi_reason_fa(porsamadi)}")
+    st.markdown(
+        f"""
+<div class="metric-card porsamadi-card">
+  <div class="porsamadi-row">
+    <span class="metric-label">Signal</span>
+    {signal_badge_html(porsamadi['signal'])}
+  </div>
+  <div class="porsamadi-reason">دلیل: {porsamadi_reason_fa(porsamadi)}</div>
+</div>
+""",
+        unsafe_allow_html=True,
+    )
     st.markdown(mini_box_close_html(), unsafe_allow_html=True)
 
 
@@ -682,12 +766,14 @@ def render_engine_details_table(engine_signals: dict) -> None:
 
 
 def main() -> None:
-    controls = st.columns([1, 1, 1, 3])
+    controls = st.columns([1, 1, 1, 1, 1, 2])
     language = controls[0].selectbox("Language", ["English", "فارسی"], key="ui_lang")
     theme = controls[1].selectbox("Theme", ["Dark", "Light"], key="ui_theme")
     timeframe = controls[2].selectbox("TF", ["5m", "15m", "1h", "4h", "1d"], key="signal_timeframe")
+    strategy = controls[3].selectbox("Strategy", ["Scalp", "Intraday", "Swing"], key="strategy_profile")
+    style = controls[4].selectbox("Style", ["Minimal Pro", "Glass"], key="ui_style")
     labels = get_texts(language)
-    load_css(theme)
+    load_css(theme, style)
 
     st_autorefresh(interval=10000, key="gold_refresh_10s")
 
@@ -724,10 +810,10 @@ def main() -> None:
 
     classic = compute_classic_signals(df, live_price)
     porsamadi = compute_porsamadi(df, df_htf, live_price)
-    final_signal, confidence, engine_signals = aggregate_signal(classic, porsamadi)
+    final_signal, confidence, engine_signals = aggregate_signal(classic, porsamadi, strategy)
 
     render_live_price_box(live_price, price_change, source, final_signal, confidence, labels)
-    st.caption(f"Timeframe: {timeframe} | HTF: {htf_interval}")
+    st.caption(f"Timeframe: {timeframe} | HTF: {htf_interval} | Strategy: {strategy} | Style: {style}")
 
     render_poursamadi_box(porsamadi, labels)
 
