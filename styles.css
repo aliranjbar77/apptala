@@ -14,7 +14,16 @@
     --mini-grad-a: rgba(20, 31, 53, 0.9);
     --mini-grad-b: rgba(17, 24, 39, 0.94);
     --metric-bg: rgba(15, 23, 42, 0.4);
-    --shadow: 0 8px 24px rgba(2, 8, 23, 0.28);
+    --shadow: 0 10px 28px rgba(2, 8, 23, 0.34);
+    --buy-bg: rgba(34, 197, 94, 0.16);
+    --buy-text: #86efac;
+    --buy-border: rgba(34, 197, 94, 0.45);
+    --sell-bg: rgba(239, 68, 68, 0.16);
+    --sell-text: #fca5a5;
+    --sell-border: rgba(239, 68, 68, 0.45);
+    --neutral-bg: rgba(148, 163, 184, 0.15);
+    --neutral-text: #cbd5e1;
+    --neutral-border: rgba(148, 163, 184, 0.45);
 }
 
 .stApp {
@@ -81,6 +90,13 @@
     color: var(--text) !important;
 }
 
+.stSelectbox [role="option"],
+.stSelectbox [role="listbox"],
+div[data-baseweb="menu"] {
+    color: var(--text) !important;
+    background: var(--panel) !important;
+}
+
 .stSelectbox svg {
     fill: var(--text) !important;
 }
@@ -95,21 +111,21 @@
 }
 
 .signal-buy {
-    background: rgba(34, 197, 94, 0.16);
-    color: #86efac;
-    border-color: rgba(34, 197, 94, 0.45);
+    background: var(--buy-bg);
+    color: var(--buy-text);
+    border-color: var(--buy-border);
 }
 
 .signal-sell {
-    background: rgba(239, 68, 68, 0.16);
-    color: #fca5a5;
-    border-color: rgba(239, 68, 68, 0.45);
+    background: var(--sell-bg);
+    color: var(--sell-text);
+    border-color: var(--sell-border);
 }
 
 .signal-neutral {
-    background: rgba(148, 163, 184, 0.15);
-    color: #cbd5e1;
-    border-color: rgba(148, 163, 184, 0.45);
+    background: var(--neutral-bg);
+    color: var(--neutral-text);
+    border-color: var(--neutral-border);
 }
 
 .logic-grid {

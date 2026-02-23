@@ -94,27 +94,66 @@ def load_css(theme: str, path: str = "styles.css") -> None:
         st.warning(f"CSS file not found: {css_path}")
         return
     css = css_path.read_text(encoding="utf-8")
+    dark_override = """
+:root {
+    --bg: #0f172a;
+    --panel: #111827;
+    --line: #2d3d58;
+    --text: #e6edf7;
+    --muted: #93a4bd;
+    --buy: #22c55e;
+    --sell: #ef4444;
+    --neutral: #94a3b8;
+    --app-grad-start: #1a2a44;
+    --app-grad-end: #0f172a;
+    --card-grad-a: rgba(20, 31, 53, 0.94);
+    --card-grad-b: rgba(17, 24, 39, 0.96);
+    --mini-grad-a: rgba(20, 31, 53, 0.9);
+    --mini-grad-b: rgba(17, 24, 39, 0.94);
+    --metric-bg: rgba(15, 23, 42, 0.4);
+    --shadow: 0 10px 28px rgba(2, 8, 23, 0.34);
+    --buy-bg: rgba(34, 197, 94, 0.16);
+    --buy-text: #86efac;
+    --buy-border: rgba(34, 197, 94, 0.45);
+    --sell-bg: rgba(239, 68, 68, 0.16);
+    --sell-text: #fca5a5;
+    --sell-border: rgba(239, 68, 68, 0.45);
+    --neutral-bg: rgba(148, 163, 184, 0.15);
+    --neutral-text: #cbd5e1;
+    --neutral-border: rgba(148, 163, 184, 0.45);
+}
+"""
     light_override = """
 :root {
-    --bg: #f3f7ff;
+    --bg: #eff5ff;
     --panel: #ffffff;
-    --line: #cfd9ea;
+    --line: #b9c9e3;
     --text: #0f172a;
     --muted: #334155;
     --buy: #15803d;
     --sell: #b91c1c;
     --neutral: #64748b;
-    --app-grad-start: #dbeafe;
-    --app-grad-end: #f3f7ff;
-    --card-grad-a: rgba(255, 255, 255, 0.95);
-    --card-grad-b: rgba(248, 250, 255, 0.98);
-    --mini-grad-a: rgba(255, 255, 255, 0.95);
-    --mini-grad-b: rgba(245, 249, 255, 0.98);
-    --metric-bg: rgba(255, 255, 255, 0.9);
-    --shadow: 0 6px 18px rgba(15, 23, 42, 0.08);
+    --app-grad-start: #cfe1ff;
+    --app-grad-end: #eff5ff;
+    --card-grad-a: rgba(255, 255, 255, 0.98);
+    --card-grad-b: rgba(244, 249, 255, 0.98);
+    --mini-grad-a: rgba(255, 255, 255, 0.98);
+    --mini-grad-b: rgba(240, 246, 255, 0.98);
+    --metric-bg: rgba(255, 255, 255, 0.98);
+    --shadow: 0 14px 30px rgba(30, 64, 175, 0.14);
+    --buy-bg: rgba(22, 163, 74, 0.12);
+    --buy-text: #166534;
+    --buy-border: rgba(22, 163, 74, 0.42);
+    --sell-bg: rgba(220, 38, 38, 0.12);
+    --sell-text: #991b1b;
+    --sell-border: rgba(220, 38, 38, 0.42);
+    --neutral-bg: rgba(100, 116, 139, 0.12);
+    --neutral-text: #334155;
+    --neutral-border: rgba(100, 116, 139, 0.38);
 }
-""" if theme == "Light" else ""
-    st.markdown(f"<style>{css}\n{light_override}</style>", unsafe_allow_html=True)
+"""
+    active_override = light_override if theme == "Light" else dark_override
+    st.markdown(f"<style>{css}\n{active_override}</style>", unsafe_allow_html=True)
 
 def as_series(values, index: pd.Index, name: str) -> pd.Series:
     if isinstance(values, pd.Series):
