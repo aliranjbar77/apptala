@@ -2210,6 +2210,12 @@ correlation_data = calculate_advanced_correlations(asset_name)
 # Auto-refresh for live price updates (every 10 seconds)
 st_autorefresh(interval=10000, limit=None, key="price_refresh")
 
+# Initialize variables to prevent NameError
+confidence = 0.0
+signal_prob = {"win_prob": 50.0, "loss_prob": 50.0}
+regime_data = {"name": "Unknown", "conf_bonus": 0.0}
+quote_source = "Unknown"
+
 if not df.empty:
     df = calculate_patterns(df)
 
@@ -2217,11 +2223,14 @@ if not df.empty:
     candle_close_price = float(close.iloc[-1]) if len(close) > 0 else 0.0
     
     # Use GoldAPI for live gold price
+    quote_source = "Unknown"  # Initialize quote_source
+    
     if asset_name == "GC=F":
         gold_api_price, gold_api_change = get_gold_price_from_api()
         if gold_api_price is not None:
             curr_price = gold_api_price
             price_delta_live = gold_api_change if gold_api_change is not None else 0.0
+            quote_source = "GoldAPI"
             st.success(f"🟢 Live Gold Price: ${curr_price:.2f} (Change: {price_delta_live:+.2f})")
         else:
             # Fallback to Yahoo Finance
@@ -2237,6 +2246,7 @@ if not df.empty:
                     live_price = get_live_price(asset_name)
                 curr_price = live_price if live_price is not None else candle_close_price
                 price_delta_live = curr_price - candle_close_price
+                quote_source = "Yahoo Finance (fallback)"
     else:
         # For other assets, use Yahoo Finance
         price_symbol = asset_name
@@ -2251,6 +2261,7 @@ if not df.empty:
                 live_price = get_live_price(asset_name)
             curr_price = live_price if live_price is not None else candle_close_price
             price_delta_live = curr_price - candle_close_price
+            quote_source = "Yahoo Finance (fallback)"
 
     # Inject latest quote into active candle so indicators/signals run on live price.
     if len(df.index) > 0 and all(col in df.columns for col in ["Open", "High", "Low", "Close"]):
@@ -3704,4 +3715,16 @@ if not df.empty:
 
 else:
     st.error(T["data_fail"])
+    
+    # Set default values for display
+    curr_price = 0.0
+    signal = "NEUTRAL"
+    bias_score = 0.0
+    confidence = 0.0
+    signal_prob = {"win_prob": 50.0, "loss_prob": 50.0}
+    regime_data = {"name": "Unknown", "conf_bonus": 0.0}
+    quote_source = "No data"
+    ai_sig = "NEUTRAL"
+    ai_mode_label = "No AI"
+    ai_badge_class = "badge-ai-neutral"
 
