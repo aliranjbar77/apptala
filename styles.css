@@ -7,27 +7,37 @@
     --buy: #22c55e;
     --sell: #ef4444;
     --neutral: #94a3b8;
+    --app-grad-start: #1a2a44;
+    --app-grad-end: #0f172a;
+    --card-grad-a: rgba(20, 31, 53, 0.94);
+    --card-grad-b: rgba(17, 24, 39, 0.96);
+    --mini-grad-a: rgba(20, 31, 53, 0.9);
+    --mini-grad-b: rgba(17, 24, 39, 0.94);
+    --metric-bg: rgba(15, 23, 42, 0.4);
+    --shadow: 0 8px 24px rgba(2, 8, 23, 0.28);
 }
 
 .stApp {
-    background: radial-gradient(circle at 20% 0%, #1a2a44 0%, #0f172a 55%);
+    background: radial-gradient(circle at 20% 0%, var(--app-grad-start) 0%, var(--app-grad-end) 58%);
     color: var(--text);
 }
 
 .big-live {
-    background: linear-gradient(180deg, rgba(20, 31, 53, 0.94), rgba(17, 24, 39, 0.96));
+    background: linear-gradient(180deg, var(--card-grad-a), var(--card-grad-b));
     border: 1px solid var(--line);
     border-radius: 12px;
     padding: 18px;
     margin-bottom: 14px;
+    box-shadow: var(--shadow);
 }
 
 .mini-box {
-    background: linear-gradient(180deg, rgba(20, 31, 53, 0.9), rgba(17, 24, 39, 0.94));
+    background: linear-gradient(180deg, var(--mini-grad-a), var(--mini-grad-b));
     border: 1px solid var(--line);
     border-radius: 10px;
     padding: 12px;
     margin-bottom: 12px;
+    box-shadow: var(--shadow);
 }
 
 .kpi {
@@ -40,6 +50,39 @@
 .caption {
     color: var(--muted);
     font-size: 12px;
+}
+
+.stMarkdown,
+.stMarkdown p,
+.stMarkdown span,
+.stMarkdown li,
+.stMarkdown h1,
+.stMarkdown h2,
+.stMarkdown h3,
+.stMarkdown h4,
+.stMarkdown h5,
+.stMarkdown h6,
+.stText,
+[data-testid="stMetricLabel"],
+[data-testid="stMetricValue"] {
+    color: var(--text) !important;
+}
+
+.stSelectbox label,
+.stTextInput label,
+.stNumberInput label {
+    color: var(--text) !important;
+    font-weight: 600 !important;
+}
+
+.stSelectbox div[data-baseweb="select"] > div {
+    background-color: var(--panel) !important;
+    border: 1px solid var(--line) !important;
+    color: var(--text) !important;
+}
+
+.stSelectbox svg {
+    fill: var(--text) !important;
 }
 
 .signal-pill {
@@ -91,7 +134,7 @@
     border: 1px solid var(--line);
     border-radius: 10px;
     padding: 10px;
-    background: rgba(15, 23, 42, 0.4);
+    background: var(--metric-bg);
     min-height: 102px;
 }
 

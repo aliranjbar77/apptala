@@ -96,13 +96,22 @@ def load_css(theme: str, path: str = "styles.css") -> None:
     css = css_path.read_text(encoding="utf-8")
     light_override = """
 :root {
-    --bg: #f8fafc;
+    --bg: #f3f7ff;
     --panel: #ffffff;
-    --line: #dbe4ee;
+    --line: #cfd9ea;
     --text: #0f172a;
-    --muted: #475569;
-    --buy: #0f9f6e;
-    --sell: #dc2626;
+    --muted: #334155;
+    --buy: #15803d;
+    --sell: #b91c1c;
+    --neutral: #64748b;
+    --app-grad-start: #dbeafe;
+    --app-grad-end: #f3f7ff;
+    --card-grad-a: rgba(255, 255, 255, 0.95);
+    --card-grad-b: rgba(248, 250, 255, 0.98);
+    --mini-grad-a: rgba(255, 255, 255, 0.95);
+    --mini-grad-b: rgba(245, 249, 255, 0.98);
+    --metric-bg: rgba(255, 255, 255, 0.9);
+    --shadow: 0 6px 18px rgba(15, 23, 42, 0.08);
 }
 """ if theme == "Light" else ""
     st.markdown(f"<style>{css}\n{light_override}</style>", unsafe_allow_html=True)
