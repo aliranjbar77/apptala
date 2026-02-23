@@ -2328,6 +2328,18 @@ if not df.empty:
     st.markdown("---")
     col1, col2, col3, col4 = st.columns(4)
     
+    # Calculate trend bias early for display
+    trend_bias = "UP" if curr_price > safe_last(ema200) else "DOWN"
+    
+    # Get gold_api_price for display (initialize if not available)
+    gold_api_price = None
+    if asset_name == "GC=F":
+        gold_api_price, _ = get_gold_price_from_api()
+    
+    # Ensure price_delta_live is defined
+    if 'price_delta_live' not in locals():
+        price_delta_live = 0.0
+    
     with col1:
         price_color = "#21c77a" if price_delta_live >= 0 else "#ff5a7a"
         price_arrow = "📈" if price_delta_live >= 0 else "📉"
