@@ -1,0 +1,45 @@
+:root {
+    --bg: #070b14;
+    --panel: #121b2e;
+    --panel-2: #18243c;
+    --line: #294062;
+    --text: #edf3ff;
+    --muted: #8ea4c9;
+    --buy: #16c784;
+    --sell: #ff4d6d;
+    --warn: #f6c445;
+}
+
+.stApp {
+    background: radial-gradient(circle at 15% 15%, #10203e 0%, #070b14 45%), var(--bg);
+    color: var(--text);
+}
+
+.big-live {
+    background: linear-gradient(135deg, #111a2d 0%, #1a2843 100%);
+    border: 2px solid var(--line);
+    border-radius: 18px;
+    padding: 24px;
+    margin-bottom: 18px;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35);
+}
+
+.mini-box {
+    background: linear-gradient(145deg, #0f1829 0%, #172640 100%);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 14px;
+    margin-bottom: 14px;
+}
+
+.kpi {
+    font-size: 54px;
+    font-weight: 800;
+    line-height: 1;
+    margin: 10px 0;
+}
+
+.caption {
+    color: var(--muted);
+    font-size: 13px;
+}

@@ -1,0 +1,43 @@
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+
+def mini_box_open_html() -> str:
+    return '<div class="mini-box">'
+
+
+def mini_box_close_html() -> str:
+    return "</div>"
+
+
+def top_banner_html() -> str:
+    return """
+<div class="big-live">
+  <div class="caption">LIVE XAU/USD TERMINAL</div>
+  <h2 style="margin: 6px 0 0 0;">Professional Gold Dashboard</h2>
+</div>
+"""
+
+
+def live_price_html(
+    live_price: float,
+    price_change: float | None,
+    source: str,
+    final_signal: str,
+    confidence: float,
+) -> str:
+    color = "#16c784" if price_change is not None and price_change >= 0 else "#ff4d6d"
+    arrow = "▲" if price_change is not None and price_change >= 0 else "▼"
+    chg_text = "N/A" if price_change is None else f"{price_change:+.2f}"
+    pct = "N/A" if (price_change is None or live_price == 0) else f"{(price_change / live_price * 100):+.2f}%"
+    tehran_now = datetime.now(ZoneInfo("Asia/Tehran")).strftime("%Y-%m-%d %H:%M:%S")
+
+    return f"""
+<div class="big-live" style="border-color:{color};">
+  <div class="caption">Main Live Price Box</div>
+  <div class="kpi" style="color:{color};">{arrow} ${live_price:,.2f}</div>
+  <div style="font-size:18px;color:{color};">Change: {chg_text} ({pct})</div>
+  <div class="caption">Source: {source} | Auto refresh: 10s | Tehran: {tehran_now}</div>
+  <div style="margin-top:12px;font-size:16px;">Final Signal: <b>{final_signal}</b> | Confidence: <b>{confidence:.0%}</b></div>
+</div>
+"""
