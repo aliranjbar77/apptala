@@ -184,7 +184,7 @@ def load_css(theme: str, visual_style: str, path: str = "styles.css") -> None:
 
 def get_timeframe_config(timeframe: str) -> tuple[str, str, int]:
     cfg = {
-        "5m": ("30d", "5m", 260),
+        "5m": ("30d", "5m", 180),
         "15m": ("60d", "15m", 260),
         "1h": ("730d", "1h", 260),
         "4h": ("730d", "4h", 260),
@@ -237,6 +237,28 @@ def safe_download(ticker: str, period: str, interval: str) -> pd.DataFrame:
     except Exception:
         pass
     return pd.DataFrame()
+
+
+def get_analysis_data(period: str, interval: str, min_bars: int) -> tuple[pd.DataFrame, str]:
+    primary_symbol = GOLD_SPOT_SYMBOL
+    backup_symbol = "GC=F"
+
+    df = safe_download(primary_symbol, period=period, interval=interval)
+    if not df.empty and len(df) >= min_bars:
+        return df, primary_symbol
+
+    backup = safe_download(backup_symbol, period=period, interval=interval)
+    if not backup.empty and len(backup) >= min_bars:
+        return backup, backup_symbol
+
+    # Soft fallback: accept lower bars if at least enough for core indicators.
+    min_soft = 120
+    if not df.empty and len(df) >= min_soft:
+        return df, primary_symbol
+    if not backup.empty and len(backup) >= min_soft:
+        return backup, backup_symbol
+
+    return pd.DataFrame(), primary_symbol
 
 
 def get_goldapi_live() -> tuple[float | None, float | None, str]:
@@ -785,12 +807,12 @@ def main() -> None:
     period, interval, min_bars = get_timeframe_config(timeframe)
     htf_period, htf_interval = get_htf_config(timeframe)
 
-    df = safe_download(GOLD_SPOT_SYMBOL, period=period, interval=interval)
-    if df.empty or len(df) < min_bars:
+    df, analysis_symbol = get_analysis_data(period, interval, min_bars)
+    if df.empty:
         st.error(f"Historical data is not sufficient for full analysis on {timeframe}.")
         st.stop()
 
-    df_htf = safe_download(GOLD_SPOT_SYMBOL, period=htf_period, interval=htf_interval)
+    df_htf = safe_download(analysis_symbol, period=htf_period, interval=htf_interval)
 
     for col in ["Open", "High", "Low", "Close"]:
         df[col] = pd.to_numeric(df[col], errors="coerce")
@@ -811,7 +833,9 @@ def main() -> None:
     final_signal, confidence, engine_signals = aggregate_signal(classic, porsamadi, strategy)
 
     render_live_price_box(live_price, price_change, source, final_signal, confidence, labels)
-    st.caption(f"Timeframe: {timeframe} | HTF: {htf_interval} | Strategy: {strategy} | Style: {style}")
+    st.caption(
+        f"Timeframe: {timeframe} | HTF: {htf_interval} | Strategy: {strategy} | Style: {style} | Analysis data: {analysis_symbol}"
+    )
 
     render_poursamadi_box(porsamadi, labels)
 
