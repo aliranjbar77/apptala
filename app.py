@@ -1,6 +1,4 @@
-﻿import io
-import wave
-from pathlib import Path
+﻿from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -18,16 +16,96 @@ from templates import live_price_html, mini_box_close_html, mini_box_open_html, 
 
 st.set_page_config(page_title="Gold Pro Terminal", layout="wide")
 
-def load_css(path: str = "styles.css") -> None:
+def get_texts(language: str) -> dict[str, str]:
+    en = {
+        "lang_label": "Language",
+        "theme_label": "Theme",
+        "dark": "Dark",
+        "light": "Light",
+        "live_caption": "LIVE XAU/USD TERMINAL",
+        "live_title": "Professional Gold Dashboard",
+        "main_live_box": "Main Live Price Box",
+        "change": "Change",
+        "source": "Source",
+        "auto_refresh": "Auto refresh",
+        "tehran": "Tehran",
+        "final_signal": "Final Signal",
+        "confidence": "Confidence",
+        "fundamental": "Fundamental Overview",
+        "smc_engine": "Smart-Money Engine (Poursamadi)",
+        "classic_engine": "Classic Engine",
+        "signal_monitor": "Multi-Logic Signal Monitor",
+        "main_chart": "Main Chart",
+        "engine_details": "Engine Details",
+        "htf_trend": "HTF trend (4H)",
+        "reason": "Reason",
+        "hh_ll": "HH detected",
+        "bos": "Bullish BOS",
+        "swing": "Swing High / Swing Low",
+        "price_action": "Price Action",
+        "rsi": "RSI",
+        "trend": "Trend (EMA)",
+        "macd": "MACD",
+        "bollinger": "Bollinger",
+        "support_resistance": "Support/Resistance",
+        "fng_unavailable": "API unavailable",
+        "corr_caption": "Correlation is based on daily returns over recent 3 months.",
+    }
+    fa = {
+        "lang_label": "زبان",
+        "theme_label": "حالت نمایش",
+        "dark": "تیره",
+        "light": "روشن",
+        "live_caption": "ترمینال زنده XAU/USD",
+        "live_title": "داشبورد حرفه‌ای طلا",
+        "main_live_box": "باکس اصلی قیمت لحظه‌ای",
+        "change": "تغییر",
+        "source": "منبع",
+        "auto_refresh": "رفرش خودکار",
+        "tehran": "تهران",
+        "final_signal": "سیگنال نهایی",
+        "confidence": "اعتماد",
+        "fundamental": "نمای کلی فاندامنتال",
+        "smc_engine": "موتور اسمارت‌مانی (پورصمدی)",
+        "classic_engine": "موتور کلاسیک",
+        "signal_monitor": "مانیتور چندمنطقی سیگنال",
+        "main_chart": "نمودار اصلی",
+        "engine_details": "جزئیات موتورها",
+        "htf_trend": "روند تایم‌فریم بالاتر (4H)",
+        "reason": "دلیل",
+        "hh_ll": "تشخیص HH/LL",
+        "bos": "BOS صعودی",
+        "swing": "سویینگ سقف / کف",
+        "price_action": "پرایس اکشن",
+        "rsi": "RSI",
+        "trend": "روند (EMA)",
+        "macd": "MACD",
+        "bollinger": "بولینگر",
+        "support_resistance": "حمایت/مقاومت",
+        "fng_unavailable": "API در دسترس نیست",
+        "corr_caption": "همبستگی بر اساس بازدهی روزانه سه ماه اخیر محاسبه شده است.",
+    }
+    return fa if language == "فارسی" else en
+
+
+def load_css(theme: str, path: str = "styles.css") -> None:
     css_path = Path(path)
     if not css_path.exists():
         st.warning(f"CSS file not found: {css_path}")
         return
     css = css_path.read_text(encoding="utf-8")
-    st.markdown(f"<style>{css}</style>", unsafe_allow_html=True)
-
-
-load_css()
+    light_override = """
+:root {
+    --bg: #f8fafc;
+    --panel: #ffffff;
+    --line: #dbe4ee;
+    --text: #0f172a;
+    --muted: #475569;
+    --buy: #0f9f6e;
+    --sell: #dc2626;
+}
+""" if theme == "Light" else ""
+    st.markdown(f"<style>{css}\n{light_override}</style>", unsafe_allow_html=True)
 
 def as_series(values, index: pd.Index, name: str) -> pd.Series:
     if isinstance(values, pd.Series):
@@ -341,21 +419,20 @@ def aggregate_signal(classic: dict, porsamadi: dict) -> tuple[str, float, dict]:
     return sig, min(conf, 0.95), engines
 
 
-def tone_bytes(freq: int = 880, duration: float = 0.22, sample_rate: int = 22050) -> bytes:
-    t = np.linspace(0, duration, int(sample_rate * duration), endpoint=False)
-    wave_data = (0.35 * np.sin(2 * np.pi * freq * t)).astype(np.float32)
-    pcm = (wave_data * 32767).astype(np.int16)
-
-    buf = io.BytesIO()
-    with wave.open(buf, "wb") as wf:
-        wf.setnchannels(1)
-        wf.setsampwidth(2)
-        wf.setframerate(sample_rate)
-        wf.writeframes(pcm.tobytes())
-    return buf.getvalue()
+def signal_class(signal: str) -> str:
+    if signal in {"BUY", "STRONG BUY", "BULLISH"}:
+        return "signal-buy"
+    if signal in {"SELL", "STRONG SELL", "BEARISH"}:
+        return "signal-sell"
+    return "signal-neutral"
 
 
-def render_signal_micro_chart(engine_signals: dict):
+def signal_badge_html(signal: str) -> str:
+    cls = signal_class(signal)
+    return f'<span class="signal-pill {cls}">{signal}</span>'
+
+
+def render_signal_micro_chart(engine_signals: dict, theme: str, title: str):
     mapping = {"BUY": 1, "SELL": -1, "NEUTRAL": 0}
     labels = list(engine_signals.keys())
     vals = [mapping.get(engine_signals[k], 0) for k in labels]
@@ -373,8 +450,8 @@ def render_signal_micro_chart(engine_signals: dict):
         ]
     )
     fig.update_layout(
-        template="plotly_dark",
-        title="Engine-by-Engine Minimal Signal Chart",
+        template="plotly_white" if theme == "Light" else "plotly_dark",
+        title=title,
         height=280,
         margin=dict(l=20, r=20, t=40, b=20),
         yaxis=dict(range=[-1.4, 1.4], tickvals=[-1, 0, 1], ticktext=["SELL", "NEUTRAL", "BUY"]),
@@ -382,14 +459,14 @@ def render_signal_micro_chart(engine_signals: dict):
     st.plotly_chart(fig, use_container_width=True)
 
 
-def render_main_chart(df: pd.DataFrame, classic: dict):
+def render_main_chart(df: pd.DataFrame, classic: dict, theme: str, labels: dict[str, str]):
     fig = make_subplots(
         rows=3,
         cols=1,
         shared_xaxes=True,
         vertical_spacing=0.03,
         row_heights=[0.6, 0.2, 0.2],
-        subplot_titles=("XAUUSD", "RSI", "MACD"),
+        subplot_titles=("XAUUSD", labels["rsi"], labels["macd"]),
     )
 
     fig.add_trace(
@@ -419,11 +496,11 @@ def render_main_chart(df: pd.DataFrame, classic: dict):
     fig.add_trace(go.Scatter(x=df.index, y=classic["macd_signal"], name="Signal", line=dict(color="#f28482")), row=3, col=1)
     fig.add_trace(go.Bar(x=df.index, y=classic["macd_hist"], name="Hist", marker_color="#8ea4c9"), row=3, col=1)
 
-    fig.update_layout(template="plotly_dark", height=820, margin=dict(l=20, r=20, t=40, b=20))
+    fig.update_layout(template="plotly_white" if theme == "Light" else "plotly_dark", height=820, margin=dict(l=20, r=20, t=40, b=20))
     st.plotly_chart(fig, use_container_width=True)
 
 
-def render_fundamental_box() -> None:
+def render_fundamental_box(labels: dict[str, str]) -> None:
     dxy = safe_download("DX-Y.NYB", period="1mo", interval="1h")
     silver = safe_download("SI=F", period="3mo", interval="1d")
     oil = safe_download("CL=F", period="3mo", interval="1d")
@@ -455,28 +532,76 @@ def render_fundamental_box() -> None:
             if len(joint) > 10:
                 corr_oil = float(joint.corr().iloc[0, 1])
 
+    dxy_state = "NEUTRAL"
+    if dxy_last is not None:
+        dxy_state = "SELL" if dxy_last >= 103 else "BUY"
+
+    fg_state = "NEUTRAL"
+    fg_text = labels["fng_unavailable"]
+    if fg_value is not None:
+        fg_text = f"{fg_value:.0f} ({fg_label})"
+        if fg_value >= 70:
+            fg_state = "SELL"
+        elif fg_value <= 30:
+            fg_state = "BUY"
+
+    silver_state = "NEUTRAL" if corr_silver is None else ("BUY" if corr_silver >= 0 else "SELL")
+    oil_state = "NEUTRAL" if corr_oil is None else ("BUY" if corr_oil >= 0 else "SELL")
+
     st.markdown(mini_box_open_html(), unsafe_allow_html=True)
-    st.markdown("### Fundamental Overview")
+    st.markdown(f"### {labels['fundamental']}")
     c1, c2, c3, c4 = st.columns(4)
 
-    c1.metric("DXY", f"{dxy_last:.2f}" if dxy_last is not None else "N/A")
+    c1.markdown(
+        f"""
+<div class="metric-card">
+  <div class="metric-label">DXY</div>
+  <div class="metric-value">{f"{dxy_last:.2f}" if dxy_last is not None else "N/A"}</div>
+  <div>{signal_badge_html(dxy_state)}</div>
+</div>
+""",
+        unsafe_allow_html=True,
+    )
 
-    if fg_value is not None:
-        c2.metric("Fear & Greed", f"{fg_value:.0f}")
-        c2.caption(fg_label)
-    else:
-        c2.metric("Fear & Greed", "N/A")
-        c2.caption("API unavailable")
+    c2.markdown(
+        f"""
+<div class="metric-card">
+  <div class="metric-label">Fear &amp; Greed</div>
+  <div class="metric-value">{fg_text}</div>
+  <div>{signal_badge_html(fg_state)}</div>
+</div>
+""",
+        unsafe_allow_html=True,
+    )
 
-    c3.metric("Gold-Silver Corr", f"{corr_silver:+.2f}" if corr_silver is not None else "N/A")
-    c4.metric("Gold-Oil Corr", f"{corr_oil:+.2f}" if corr_oil is not None else "N/A")
+    c3.markdown(
+        f"""
+<div class="metric-card">
+  <div class="metric-label">Gold-Silver Corr</div>
+  <div class="metric-value">{f"{corr_silver:+.2f}" if corr_silver is not None else "N/A"}</div>
+  <div>{signal_badge_html(silver_state)}</div>
+</div>
+""",
+        unsafe_allow_html=True,
+    )
 
-    st.caption("Correlation is based on daily returns over recent 3 months.")
+    c4.markdown(
+        f"""
+<div class="metric-card">
+  <div class="metric-label">Gold-Oil Corr</div>
+  <div class="metric-value">{f"{corr_oil:+.2f}" if corr_oil is not None else "N/A"}</div>
+  <div>{signal_badge_html(oil_state)}</div>
+</div>
+""",
+        unsafe_allow_html=True,
+    )
+
+    st.caption(labels["corr_caption"])
     st.markdown(mini_box_close_html(), unsafe_allow_html=True)
 
 
-def render_top_banner() -> None:
-    st.markdown(top_banner_html(), unsafe_allow_html=True)
+def render_top_banner(labels: dict[str, str]) -> None:
+    st.markdown(top_banner_html(labels["live_caption"], labels["live_title"]), unsafe_allow_html=True)
 
 
 def render_live_price_box(
@@ -485,35 +610,25 @@ def render_live_price_box(
     source: str,
     final_signal: str,
     confidence: float,
+    labels: dict[str, str],
 ) -> None:
     st.markdown(
-        live_price_html(live_price, price_change, source, final_signal, confidence),
+        live_price_html(live_price, price_change, source, final_signal, confidence, labels),
         unsafe_allow_html=True,
     )
 
 
-def handle_audio_alert(final_signal: str) -> None:
-    if "last_audio_signal" not in st.session_state:
-        st.session_state.last_audio_signal = None
-
-    if final_signal in {"STRONG BUY", "STRONG SELL"} and final_signal != st.session_state.last_audio_signal:
-        if final_signal == "STRONG BUY":
-            st.audio(tone_bytes(freq=1040), format="audio/wav", autoplay=True)
-        else:
-            st.audio(tone_bytes(freq=380), format="audio/wav", autoplay=True)
-
-    st.session_state.last_audio_signal = final_signal
 
 
-def render_poursamadi_box(porsamadi: dict) -> None:
+def render_poursamadi_box(porsamadi: dict, labels: dict[str, str]) -> None:
     st.markdown(mini_box_open_html(), unsafe_allow_html=True)
-    st.markdown("### Smart-Money Engine (Poursamadi)")
-    st.write(f"Signal: **{porsamadi['signal']}**")
-    st.write(f"Reason: {porsamadi['reason']}")
-    st.write(f"HTF trend (4H): **{porsamadi['htf_trend']}**")
-    st.write(f"HH detected: `{porsamadi['hh']}` | LL detected: `{porsamadi['ll']}`")
-    st.write(f"Bullish BOS: `{porsamadi['bullish_bos']}` | Bearish BOS: `{porsamadi['bearish_bos']}`")
-    st.write(f"Swing High / Swing Low: {porsamadi['last_swing_high']:.2f} / {porsamadi['last_swing_low']:.2f}")
+    st.markdown(f"### {labels['smc_engine']}")
+    st.markdown(f"Signal: {signal_badge_html(porsamadi['signal'])}", unsafe_allow_html=True)
+    st.write(f"{labels['reason']}: {porsamadi['reason']}")
+    st.markdown(f"{labels['htf_trend']}: {signal_badge_html(porsamadi['htf_trend'])}", unsafe_allow_html=True)
+    st.write(f"{labels['hh_ll']}: `{porsamadi['hh']}` / `{porsamadi['ll']}`")
+    st.write(f"{labels['bos']}: `{porsamadi['bullish_bos']}` | Bearish BOS: `{porsamadi['bearish_bos']}`")
+    st.write(f"{labels['swing']}: {porsamadi['last_swing_high']:.2f} / {porsamadi['last_swing_low']:.2f}")
     if porsamadi["bullish_ob"]:
         st.write(f"Bullish Order Block: {porsamadi['bullish_ob'][0]:.2f} - {porsamadi['bullish_ob'][1]:.2f}")
     if porsamadi["bearish_ob"]:
@@ -521,22 +636,26 @@ def render_poursamadi_box(porsamadi: dict) -> None:
     st.markdown(mini_box_close_html(), unsafe_allow_html=True)
 
 
-def render_classic_box(classic: dict) -> None:
+def render_classic_box(classic: dict, labels: dict[str, str]) -> None:
     st.markdown(mini_box_open_html(), unsafe_allow_html=True)
-    st.markdown("### Classic Engine")
-    st.write(f"Price Action: **{classic['price_action']}**")
-    st.write(f"RSI: **{classic['momentum']}**")
-    st.write(f"Trend (EMA): **{classic['trend']}**")
-    st.write(f"MACD: **{classic['macd']}**")
-    st.write(f"Bollinger: **{classic['bollinger']}**")
-    st.write(f"Support/Resistance: {classic['support']:.2f} / {classic['resistance']:.2f}")
+    st.markdown(f"### {labels['classic_engine']}")
+    st.write(f"{labels['price_action']}: **{classic['price_action']}**")
+    st.write(f"{labels['rsi']}: **{classic['momentum']}**")
+    st.write(f"{labels['trend']}: **{classic['trend']}**")
+    st.write(f"{labels['macd']}: **{classic['macd']}**")
+    st.write(f"{labels['bollinger']}: **{classic['bollinger']}**")
+    st.write(f"{labels['support_resistance']}: {classic['support']:.2f} / {classic['resistance']:.2f}")
     st.markdown(mini_box_close_html(), unsafe_allow_html=True)
 
 
-def render_signal_monitor(engine_signals: dict) -> None:
+def render_signal_monitor(engine_signals: dict, theme: str, labels: dict[str, str]) -> None:
     st.markdown(mini_box_open_html(), unsafe_allow_html=True)
-    st.markdown("### Multi-Logic Signal Monitor")
-    render_signal_micro_chart(engine_signals)
+    st.markdown(f"### {labels['signal_monitor']}")
+    badges = "".join(
+        [f'<span class="logic-item">{name}: {signal_badge_html(sig)}</span>' for name, sig in engine_signals.items()]
+    )
+    st.markdown(f'<div class="logic-grid">{badges}</div>', unsafe_allow_html=True)
+    render_signal_micro_chart(engine_signals, theme, labels["signal_monitor"])
     st.markdown(mini_box_close_html(), unsafe_allow_html=True)
 
 
@@ -546,9 +665,15 @@ def render_engine_details_table(engine_signals: dict) -> None:
 
 
 def main() -> None:
+    controls = st.columns([1, 1, 4])
+    language = controls[0].selectbox("Language", ["English", "فارسی"], key="ui_lang")
+    theme = controls[1].selectbox("Theme", ["Dark", "Light"], key="ui_theme")
+    labels = get_texts(language)
+    load_css(theme)
+
     st_autorefresh(interval=10000, key="gold_refresh_10s")
 
-    render_top_banner()
+    render_top_banner(labels)
 
     live_price, price_change, source, status = get_live_gold_price()
     if live_price is None:
@@ -580,24 +705,23 @@ def main() -> None:
     porsamadi = compute_porsamadi(df, df_htf, live_price)
     final_signal, confidence, engine_signals = aggregate_signal(classic, porsamadi)
 
-    render_live_price_box(live_price, price_change, source, final_signal, confidence)
-    handle_audio_alert(final_signal)
+    render_live_price_box(live_price, price_change, source, final_signal, confidence, labels)
 
     col_a, col_b = st.columns([1, 1])
 
     with col_a:
-        render_poursamadi_box(porsamadi)
+        render_poursamadi_box(porsamadi, labels)
 
     with col_b:
-        render_classic_box(classic)
+        render_classic_box(classic, labels)
 
-    render_signal_monitor(engine_signals)
+    render_signal_monitor(engine_signals, theme, labels)
 
-    render_fundamental_box()
+    render_fundamental_box(labels)
 
-    tab1, tab2 = st.tabs(["Main Chart", "Engine Details"])
+    tab1, tab2 = st.tabs([labels["main_chart"], labels["engine_details"]])
     with tab1:
-        render_main_chart(df, classic)
+        render_main_chart(df, classic, theme, labels)
 
     with tab2:
         render_engine_details_table(engine_signals)
@@ -605,6 +729,7 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
 
 
 
