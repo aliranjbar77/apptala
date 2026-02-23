@@ -155,6 +155,37 @@ def load_css(theme: str, path: str = "styles.css") -> None:
     active_override = light_override if theme == "Light" else dark_override
     st.markdown(f"<style>{css}\n{active_override}</style>", unsafe_allow_html=True)
 
+
+def get_timeframe_config(timeframe: str) -> tuple[str, str, int]:
+    cfg = {
+        "5m": ("30d", "5m", 260),
+        "15m": ("60d", "15m", 260),
+        "1h": ("730d", "1h", 260),
+        "4h": ("730d", "4h", 260),
+        "1d": ("5y", "1d", 260),
+    }
+    return cfg.get(timeframe, ("730d", "1h", 260))
+
+
+def get_htf_config(timeframe: str) -> tuple[str, str]:
+    cfg = {
+        "5m": ("60d", "15m"),
+        "15m": ("730d", "1h"),
+        "1h": ("730d", "4h"),
+        "4h": ("5y", "1d"),
+        "1d": ("10y", "1wk"),
+    }
+    return cfg.get(timeframe, ("730d", "4h"))
+
+
+def porsamadi_reason_fa(porsamadi: dict) -> str:
+    if porsamadi.get("signal") == "BUY":
+        return "شکست ساختار صعودی (BOS) با تایید HH/Order Block و هم‌راستایی تایم‌فریم بالاتر."
+    if porsamadi.get("signal") == "SELL":
+        return "شکست ساختار نزولی (BOS) با تایید LL/Order Block و هم‌راستایی تایم‌فریم بالاتر."
+    return "در این تایم‌فریم ستاپ واضح پورصمدی تشکیل نشده است."
+
+
 def as_series(values, index: pd.Index, name: str) -> pd.Series:
     if isinstance(values, pd.Series):
         out = pd.to_numeric(values, errors="coerce")
@@ -672,15 +703,7 @@ def render_poursamadi_box(porsamadi: dict, labels: dict[str, str]) -> None:
     st.markdown(mini_box_open_html(), unsafe_allow_html=True)
     st.markdown(f"### {labels['smc_engine']}")
     st.markdown(f"Signal: {signal_badge_html(porsamadi['signal'])}", unsafe_allow_html=True)
-    st.write(f"{labels['reason']}: {porsamadi['reason']}")
-    st.markdown(f"{labels['htf_trend']}: {signal_badge_html(porsamadi['htf_trend'])}", unsafe_allow_html=True)
-    st.write(f"{labels['hh_ll']}: `{porsamadi['hh']}` / `{porsamadi['ll']}`")
-    st.write(f"{labels['bos']}: `{porsamadi['bullish_bos']}` | Bearish BOS: `{porsamadi['bearish_bos']}`")
-    st.write(f"{labels['swing']}: {porsamadi['last_swing_high']:.2f} / {porsamadi['last_swing_low']:.2f}")
-    if porsamadi["bullish_ob"]:
-        st.write(f"Bullish Order Block: {porsamadi['bullish_ob'][0]:.2f} - {porsamadi['bullish_ob'][1]:.2f}")
-    if porsamadi["bearish_ob"]:
-        st.write(f"Bearish Order Block: {porsamadi['bearish_ob'][0]:.2f} - {porsamadi['bearish_ob'][1]:.2f}")
+    st.write(f"دلیل: {porsamadi_reason_fa(porsamadi)}")
     st.markdown(mini_box_close_html(), unsafe_allow_html=True)
 
 
@@ -713,9 +736,10 @@ def render_engine_details_table(engine_signals: dict) -> None:
 
 
 def main() -> None:
-    controls = st.columns([1, 1, 4])
+    controls = st.columns([1, 1, 1, 3])
     language = controls[0].selectbox("Language", ["English", "فارسی"], key="ui_lang")
     theme = controls[1].selectbox("Theme", ["Dark", "Light"], key="ui_theme")
+    timeframe = controls[2].selectbox("TF", ["5m", "15m", "1h", "4h", "1d"], key="signal_timeframe")
     labels = get_texts(language)
     load_css(theme)
 
@@ -728,12 +752,15 @@ def main() -> None:
         st.error(f"Live price unavailable. Details: {status}")
         st.stop()
 
-    df = safe_download("GC=F", period="3mo", interval="1h")
-    if df.empty or len(df) < 220:
-        st.error("Historical data is not sufficient for full analysis.")
+    period, interval, min_bars = get_timeframe_config(timeframe)
+    htf_period, htf_interval = get_htf_config(timeframe)
+
+    df = safe_download("GC=F", period=period, interval=interval)
+    if df.empty or len(df) < min_bars:
+        st.error(f"Historical data is not sufficient for full analysis on {timeframe}.")
         st.stop()
 
-    df_htf = safe_download("GC=F", period="6mo", interval="4h")
+    df_htf = safe_download("GC=F", period=htf_period, interval=htf_interval)
 
     for col in ["Open", "High", "Low", "Close"]:
         df[col] = pd.to_numeric(df[col], errors="coerce")
@@ -754,6 +781,7 @@ def main() -> None:
     final_signal, confidence, engine_signals = aggregate_signal(classic, porsamadi)
 
     render_live_price_box(live_price, price_change, source, final_signal, confidence, labels)
+    st.caption(f"Timeframe: {timeframe} | HTF: {htf_interval}")
 
     col_a, col_b = st.columns([1, 1])
 
