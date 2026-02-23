@@ -14,6 +14,7 @@ from datetime import datetime, timedelta
 import re
 import time
 from pathlib import Path
+from zoneinfo import ZoneInfo
 import os
 
 # --- Audio Alert Function ---
@@ -479,14 +480,7 @@ def get_data(symbol: str, period: str, interval: str):
 
 def now_iran_str(fmt: str = "%Y-%m-%d %H:%M:%S") -> str:
     try:
-        # Try using ZoneInfo first (Python 3.9+)
-        try:
-            from zoneinfo import ZoneInfo
-            return datetime.now(ZoneInfo("Asia/Tehran")).strftime(fmt)
-        except ImportError:
-            # Fallback for older Python versions
-            import pytz
-            return datetime.now(pytz.timezone("Asia/Tehran")).strftime(fmt)
+        return datetime.now(ZoneInfo("Asia/Tehran")).strftime(fmt)
     except Exception:
         return datetime.utcnow().strftime(fmt) + " UTC"
 
@@ -1953,7 +1947,7 @@ with st.sidebar.expander(tr("Signal Engine", "Signal Engine"), expanded=False):
 st.sidebar.markdown("---")
 st.sidebar.subheader(tr("Quick Actions", "اقدامات سریع"))
 qa1, qa2 = st.sidebar.columns(2)
-if qa1.button(tr("Reset Risk", "ریست ریسک"), width='stretch'):
+if qa1.button(tr("Reset Risk", "ریست ریسک"), use_container_width=True):
     st.session_state["balance_input"] = 1000.0
     st.session_state["risk_pct_input"] = 2.0
     st.session_state["atr_mult_input"] = 2.0
@@ -1963,9 +1957,9 @@ if qa1.button(tr("Reset Risk", "ریست ریسک"), width='stretch'):
     st.session_state["risk_multiplier_compact"] = 1.0
     st.session_state["enable_smart_sizing_compact"] = True
     st.rerun()
-if qa2.button(tr("Reload", "بارگذاری"), width='stretch'):
+if qa2.button(tr("Reload", "بارگذاری"), use_container_width=True):
     st.rerun()
-snapshot_requested = st.sidebar.button(tr("Chart Snapshot (HTML)", "خروجی چارت (HTML)"), width='stretch')
+snapshot_requested = st.sidebar.button(tr("Chart Snapshot (HTML)", "خروجی چارت (HTML)"), use_container_width=True)
 
 # --- Main Logic ---
 period_map = {
@@ -2166,23 +2160,23 @@ if not df.empty:
     # Enhanced MACD analysis
     macd_indicator = MACD(close)
     macd_signal_series = macd_indicator.macd_signal()
-    macd_histogram_series = macd_indicator.macd_diff()  # Use macd_diff() instead of macd_histogram()
+    macd_histogram_series = macd_indicator.macd_diff()
     macd_line_series = macd_indicator.macd()
     
     # Get last values for comparison
-    macd_signal_val = safe_last(macd_signal_series)
-    macd_histogram_val = safe_last(macd_histogram_series)
-    macd_line_val = safe_last(macd_line_series)
+    macd_signal = safe_last(macd_signal_series)
+    macd_histogram = safe_last(macd_histogram_series)
+    macd_line = safe_last(macd_line_series)
     
-    if macd_histogram_val > 0 and macd_line_val > macd_signal_val:
+    if macd_histogram > 0 and macd_line > macd_signal:
         long_pts += 9
         bullish_reasons.append(tr("MACD bullish crossover", "کراس‌اور صعودی MACD"))
-    elif macd_histogram_val < 0 and macd_line_val < macd_signal_val:
+    elif macd_histogram < 0 and macd_line < macd_signal:
         short_pts += 9
         bearish_reasons.append(tr("MACD bearish crossover", "کراس‌اور نزولی MACD"))
-    elif macd_histogram_val > 0:
+    elif macd_histogram > 0:
         long_pts += 4
-    elif macd_histogram_val < 0:
+    elif macd_histogram < 0:
         short_pts += 4
 
     # 3) Enhanced Market structure with Bollinger Bands
@@ -2349,30 +2343,19 @@ if not df.empty:
 
     macd_sig = "NEUTRAL"
     macd_reason = tr("[Source: MACD] Flat momentum", "[Source: MACD] Flat momentum")
-    if len(macd_hist.dropna()) > 2 and len(macd_line.dropna()) > 2 and len(macd_signal.dropna()) > 2:
-        # Get last non-NaN values
-        last_hist = macd_hist.dropna().iloc[-1]
-        last_hist_prev = macd_hist.dropna().iloc[-2] if len(macd_hist.dropna()) > 1 else 0
-        last_line = macd_line.dropna().iloc[-1]
-        last_signal = macd_signal.dropna().iloc[-1]
-        
-        if last_hist > 0 and last_hist_prev <= 0:
+    if len(macd_hist.dropna()) > 2:
+        if macd_hist.iloc[-1] > 0 and macd_hist.iloc[-2] <= 0:
             macd_sig = "BUY"
             macd_reason = tr("[Source: MACD] Histogram crossed above zero", "[Source: MACD] Histogram crossed above zero")
-        elif last_hist < 0 and last_hist_prev >= 0:
+        elif macd_hist.iloc[-1] < 0 and macd_hist.iloc[-2] >= 0:
             macd_sig = "SELL"
             macd_reason = tr("[Source: MACD] Histogram crossed below zero", "[Source: MACD] Histogram crossed below zero")
-        elif not pd.isna(last_hist) and not pd.isna(last_line) and not pd.isna(last_signal):
-            if last_hist > 0 and last_line > last_signal:
-                macd_sig = "BUY"
-                macd_reason = tr("[Source: MACD] Positive histogram with bullish line structure", "[Source: MACD] Positive histogram with bullish line structure")
-            elif last_hist < 0 and last_line < last_signal:
-                macd_sig = "SELL"
-                macd_reason = tr("[Source: MACD] Negative histogram with bearish line structure", "[Source: MACD] Negative histogram with bearish line structure")
-    else:
-        # Not enough data for MACD analysis
-        macd_sig = "NEUTRAL"
-        macd_reason = tr("[Source: MACD] Insufficient data", "[Source: MACD] داده ناکافی")
+        elif macd_hist.iloc[-1] > 0 and macd_line.iloc[-1] > macd_signal.iloc[-1]:
+            macd_sig = "BUY"
+            macd_reason = tr("[Source: MACD] Positive histogram with bullish line structure", "[Source: MACD] Positive histogram with bullish line structure")
+        elif macd_hist.iloc[-1] < 0 and macd_line.iloc[-1] < macd_signal.iloc[-1]:
+            macd_sig = "SELL"
+            macd_reason = tr("[Source: MACD] Negative histogram with bearish line structure", "[Source: MACD] Negative histogram with bearish line structure")
 
     bb_mid = safe_last(bb.bollinger_mavg(), default=curr_price)
     structure_sig = str(market_structure.get("signal", "NEUTRAL"))
@@ -3114,7 +3097,7 @@ if not df.empty:
             
             # Create and display heatmap
             heatmap_fig = create_correlation_heatmap(correlation_data)
-            st.plotly_chart(heatmap_fig, width='stretch')
+            st.plotly_chart(heatmap_fig, use_container_width=True)
             
             # Display detailed correlation table
             correlation_rows = []
@@ -3142,7 +3125,7 @@ if not df.empty:
                 jf["timestamp"] = pd.to_datetime(jf["timestamp"], errors="coerce")
                 jf = jf.sort_values("timestamp")
                 st.write(tr("Recent signal logs", "لاگ اخیر سیگنال‌ها"))
-                st.dataframe(jf.tail(20), width='stretch', hide_index=True)
+                st.dataframe(jf.tail(20), use_container_width=True, hide_index=True)
                 if len(jf) >= 2:
                     signal_shift_rate = (jf["signal"].astype(str) != jf["signal"].astype(str).shift(1)).mean() * 100.0
                     avg_conf = float(jf["confidence"].astype(float).mean())
@@ -3197,7 +3180,7 @@ if not df.empty:
         axis=1)
     
     st.markdown(f"<div class='app-card'><h4 style='margin:0;'>{T['method_title']}</h4></div>", unsafe_allow_html=True)
-    st.dataframe(styled_df, width='stretch', hide_index=True)
+    st.dataframe(styled_df, use_container_width=True, hide_index=True)
 
     # --- Chart ---
     chart_snapshot_html = None
@@ -3306,7 +3289,7 @@ if not df.empty:
             fig.update_xaxes(range=[df.index[-live_window], df.index[-1]], row=2, col=1)
 
         fig.update_layout(height=800, template="plotly_dark", xaxis_rangeslider_visible=False)
-        st.plotly_chart(fig, width='stretch')
+        st.plotly_chart(fig, use_container_width=True)
         if snapshot_requested:
             chart_snapshot_html = fig.to_html(include_plotlyjs="cdn")
             st.sidebar.download_button(
@@ -3314,7 +3297,7 @@ if not df.empty:
                 data=chart_snapshot_html,
                 file_name=f"chart_snapshot_{asset_name}_{timeframe}.html",
                 mime="text/html",
-                width='stretch',
+                use_container_width=True,
             )
 
     if show_logic_block:
