@@ -14,6 +14,7 @@ from templates import live_price_html, mini_box_close_html, mini_box_open_html, 
 
 
 st.set_page_config(page_title="Gold Pro Terminal", layout="wide")
+GOLD_SPOT_SYMBOL = "XAUUSD=X"
 
 def get_texts(language: str) -> dict[str, str]:
     en = {
@@ -262,9 +263,9 @@ def get_goldapi_live() -> tuple[float | None, float | None, str]:
 
 
 def get_yf_live_backup() -> tuple[float | None, float | None, str]:
-    intraday = safe_download("GC=F", period="1d", interval="1m")
+    intraday = safe_download(GOLD_SPOT_SYMBOL, period="1d", interval="1m")
     if intraday.empty:
-        intraday = safe_download("GC=F", period="5d", interval="15m")
+        intraday = safe_download(GOLD_SPOT_SYMBOL, period="5d", interval="15m")
     if intraday.empty or "Close" not in intraday.columns:
         return None, None, "yfinance backup failed"
 
@@ -274,7 +275,7 @@ def get_yf_live_backup() -> tuple[float | None, float | None, str]:
 
     curr = float(close.iloc[-1])
     prev = float(close.iloc[-2]) if len(close) > 1 else curr
-    return curr, curr - prev, "yfinance backup"
+    return curr, curr - prev, f"yfinance backup ({GOLD_SPOT_SYMBOL})"
 
 
 def get_live_gold_price() -> tuple[float | None, float | None, str, str]:
@@ -606,7 +607,7 @@ def render_fundamental_box(labels: dict[str, str]) -> None:
     dxy = safe_download("DX-Y.NYB", period="1mo", interval="1h")
     silver = safe_download("SI=F", period="3mo", interval="1d")
     oil = safe_download("CL=F", period="3mo", interval="1d")
-    gold = safe_download("GC=F", period="3mo", interval="1d")
+    gold = safe_download(GOLD_SPOT_SYMBOL, period="3mo", interval="1d")
 
     dxy_last = None
     if not dxy.empty and "Close" in dxy.columns:
@@ -787,12 +788,12 @@ def main() -> None:
     period, interval, min_bars = get_timeframe_config(timeframe)
     htf_period, htf_interval = get_htf_config(timeframe)
 
-    df = safe_download("GC=F", period=period, interval=interval)
+    df = safe_download(GOLD_SPOT_SYMBOL, period=period, interval=interval)
     if df.empty or len(df) < min_bars:
         st.error(f"Historical data is not sufficient for full analysis on {timeframe}.")
         st.stop()
 
-    df_htf = safe_download("GC=F", period=htf_period, interval=htf_interval)
+    df_htf = safe_download(GOLD_SPOT_SYMBOL, period=htf_period, interval=htf_interval)
 
     for col in ["Open", "High", "Low", "Close"]:
         df[col] = pd.to_numeric(df[col], errors="coerce")
