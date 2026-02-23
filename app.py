@@ -228,35 +228,71 @@ def safe_last(series: pd.Series, default: float = 0.0) -> float:
 
 
 def safe_download(ticker: str, period: str, interval: str) -> pd.DataFrame:
-    try:
-        df = yf.download(ticker, period=period, interval=interval, progress=False, threads=False)
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = df.columns.get_level_values(0)
-        if isinstance(df, pd.DataFrame) and not df.empty:
-            return df.loc[:, ~df.columns.duplicated()].copy()
-    except Exception:
-        pass
+    for _ in range(3):
+        try:
+            df = yf.download(ticker, period=period, interval=interval, progress=False, threads=False)
+            if isinstance(df.columns, pd.MultiIndex):
+                df.columns = df.columns.get_level_values(0)
+            if isinstance(df, pd.DataFrame) and not df.empty:
+                return df.loc[:, ~df.columns.duplicated()].copy()
+        except Exception:
+            pass
     return pd.DataFrame()
+
+
+def resample_to_interval(df: pd.DataFrame, target_interval: str) -> pd.DataFrame:
+    if df.empty:
+        return pd.DataFrame()
+    if not isinstance(df.index, pd.DatetimeIndex):
+        return pd.DataFrame()
+    if any(col not in df.columns for col in ["Open", "High", "Low", "Close"]):
+        return pd.DataFrame()
+
+    rule_map = {"5m": "5min", "15m": "15min", "1h": "1h", "4h": "4h", "1d": "1d"}
+    rule = rule_map.get(target_interval)
+    if not rule:
+        return pd.DataFrame()
+
+    out = (
+        df.resample(rule)
+        .agg(
+            {
+                "Open": "first",
+                "High": "max",
+                "Low": "min",
+                "Close": "last",
+                "Volume": "sum" if "Volume" in df.columns else "first",
+            }
+        )
+        .dropna(subset=["Open", "High", "Low", "Close"])
+    )
+    return out
 
 
 def get_analysis_data(period: str, interval: str, min_bars: int) -> tuple[pd.DataFrame, str]:
     primary_symbol = GOLD_SPOT_SYMBOL
     backup_symbol = "GC=F"
 
-    df = safe_download(primary_symbol, period=period, interval=interval)
-    if not df.empty and len(df) >= min_bars:
-        return df, primary_symbol
-
-    backup = safe_download(backup_symbol, period=period, interval=interval)
-    if not backup.empty and len(backup) >= min_bars:
-        return backup, backup_symbol
+    symbols = [primary_symbol, backup_symbol]
+    for sym in symbols:
+        df = safe_download(sym, period=period, interval=interval)
+        if not df.empty and len(df) >= min_bars:
+            return df, sym
 
     # Soft fallback: accept lower bars if at least enough for core indicators.
     min_soft = 120
-    if not df.empty and len(df) >= min_soft:
-        return df, primary_symbol
-    if not backup.empty and len(backup) >= min_soft:
-        return backup, backup_symbol
+    for sym in symbols:
+        df = safe_download(sym, period=period, interval=interval)
+        if not df.empty and len(df) >= min_soft:
+            return df, sym
+
+    # Hard fallback for intraday gaps: build requested bars from 1m feed.
+    if interval in {"5m", "15m"}:
+        for sym in symbols:
+            one_min = safe_download(sym, period="7d", interval="1m")
+            rebuilt = resample_to_interval(one_min, interval)
+            if not rebuilt.empty and len(rebuilt) >= min_soft:
+                return rebuilt, sym
 
     return pd.DataFrame(), primary_symbol
 
@@ -822,6 +858,11 @@ def main() -> None:
         for col in ["Open", "High", "Low", "Close"]:
             df_htf[col] = pd.to_numeric(df_htf[col], errors="coerce")
         df_htf = df_htf.dropna(subset=["Open", "High", "Low", "Close"]).copy()
+    else:
+        # Keep analysis alive if HTF feed is temporarily unavailable.
+        rebuilt_htf = resample_to_interval(df, htf_interval)
+        if not rebuilt_htf.empty:
+            df_htf = rebuilt_htf.copy()
 
     last_idx = df.index[-1]
     df.at[last_idx, "Close"] = float(live_price)
