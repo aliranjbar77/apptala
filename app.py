@@ -241,31 +241,28 @@ def safe_download(ticker: str, period: str, interval: str) -> pd.DataFrame:
 
 def get_goldapi_live() -> tuple[float | None, float | None, str]:
     try:
-        api_key = st.secrets["GOLD_API_KEY"]
+        headers = {"x-access-token": st.secrets["GOLD_API_KEY"], "Content-Type": "application/json"}
     except Exception:
         return None, None, "GoldAPI key not found"
 
-    headers = {
-        "x-access-token": api_key,
-        "Content-Type": "application/json",
-    }
-
     try:
         resp = requests.get("https://www.goldapi.io/api/XAU/USD", headers=headers, timeout=10)
+        if resp.status_code in {400, 401, 404}:
+            return None, None, f"GoldAPI status={resp.status_code}"
         if resp.status_code != 200:
             return None, None, f"GoldAPI status={resp.status_code}"
         payload = resp.json()
-        price = float(payload.get("price"))
-        prev = float(payload.get("prev_day_price", price))
-        return price, price - prev, "GoldAPI"
+        current_price = float(payload.get("price"))
+        prev = float(payload.get("prev_day_price", current_price))
+        return current_price, current_price - prev, "GoldAPI"
     except Exception as exc:
         return None, None, f"GoldAPI exception: {exc}"
 
 
 def get_yf_live_backup() -> tuple[float | None, float | None, str]:
-    intraday = safe_download(GOLD_SPOT_SYMBOL, period="1d", interval="1m")
+    intraday = safe_download("GC=F", period="1d", interval="1m")
     if intraday.empty:
-        intraday = safe_download(GOLD_SPOT_SYMBOL, period="5d", interval="15m")
+        intraday = safe_download("GC=F", period="5d", interval="15m")
     if intraday.empty or "Close" not in intraday.columns:
         return None, None, "yfinance backup failed"
 
@@ -275,7 +272,7 @@ def get_yf_live_backup() -> tuple[float | None, float | None, str]:
 
     curr = float(close.iloc[-1])
     prev = float(close.iloc[-2]) if len(close) > 1 else curr
-    return curr, curr - prev, f"yfinance backup ({GOLD_SPOT_SYMBOL})"
+    return curr, curr - prev, "yfinance backup (GC=F)"
 
 
 def get_live_gold_price() -> tuple[float | None, float | None, str, str]:
