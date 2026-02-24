@@ -300,56 +300,59 @@ def get_analysis_data(period: str, interval: str, min_bars: int) -> tuple[pd.Dat
 
 def get_goldapi_live() -> tuple[float | None, float | None, str]:
     try:
+        api_key = str(st.secrets["GOLD_API_KEY"]).strip()
+        if not api_key:
+            return None, None, "GoldAPI key empty"
         headers = {
-            "x-access-token": st.secrets["GOLD_API_KEY"],
+            "x-access-token": api_key,
             "Content-Type": "application/json",
-            "Cache-Control": "no-cache",
-            "Pragma": "no-cache",
         }
     except Exception:
         return None, None, "GoldAPI key not found"
 
-    try:
+    def _call_goldapi() -> tuple[float | None, float | None, str]:
         resp = requests.get(
             "https://www.goldapi.io/api/XAU/USD",
             headers=headers,
-            params={"cache": "false"},
             timeout=10,
         )
-        if resp.status_code in {400, 401, 404}:
-            return None, None, f"GoldAPI status={resp.status_code}"
         if resp.status_code != 200:
-            return None, None, f"GoldAPI status={resp.status_code}"
-        payload = resp.json()
+            body = "no body"
+            try:
+                body = resp.text.strip() or "empty body"
+            except Exception:
+                pass
+            print(f"GoldAPI error: status={resp.status_code}, body={body}")
+            return None, None, f"GoldAPI status={resp.status_code} {body}".strip()
+        try:
+            payload = resp.json()
+        except Exception as exc:
+            print(f"GoldAPI JSON parse error: {exc}")
+            return None, None, f"GoldAPI invalid JSON: {exc}"
         if "price" not in payload:
+            print(f"GoldAPI payload missing price: {payload}")
             return None, None, "GoldAPI invalid payload (missing price)"
         current_price = float(payload["price"])
         prev = float(payload.get("prev_day_price", current_price))
         return current_price, current_price - prev, "GoldAPI"
+
+    try:
+        return _call_goldapi()
     except Exception as exc:
         return None, None, f"GoldAPI exception: {exc}"
-
-
-def get_yf_live_backup() -> tuple[float | None, float | None, str]:
-    intraday = safe_download("GC=F", period="1d", interval="1m")
-    if intraday.empty:
-        intraday = safe_download("GC=F", period="5d", interval="15m")
-    if intraday.empty or "Close" not in intraday.columns:
-        return None, None, "yfinance backup failed"
-
-    close = pd.to_numeric(intraday["Close"], errors="coerce").dropna()
-    if close.empty:
-        return None, None, "yfinance backup empty close"
-
-    curr = float(close.iloc[-1])
-    prev = float(close.iloc[-2]) if len(close) > 1 else curr
-    return curr, curr - prev, "yfinance backup (GC=F)"
 
 
 def get_live_gold_price() -> tuple[float | None, float | None, str, str]:
     p, chg, src = get_goldapi_live()
     if p is not None:
+        st.session_state["last_live_price"] = float(p)
+        st.session_state["last_live_change"] = float(chg if chg is not None else 0.0)
         return p, chg, src, "ok"
+    # Do not leave UI empty on temporary provider errors; keep last valid GoldAPI tick.
+    last_p = st.session_state.get("last_live_price")
+    if last_p is not None:
+        last_chg = float(st.session_state.get("last_live_change", 0.0))
+        return float(last_p), last_chg, "GoldAPI (last valid tick)", src
     return None, None, "none", src
 
 
