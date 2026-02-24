@@ -348,11 +348,31 @@ def get_live_gold_price() -> tuple[float | None, float | None, str, str]:
         st.session_state["last_live_price"] = float(p)
         st.session_state["last_live_change"] = float(chg if chg is not None else 0.0)
         return p, chg, src, "ok"
-    # Do not leave UI empty on temporary provider errors; keep last valid GoldAPI tick.
+
+    # Temporary fallback until GoldAPI key/quota is fixed.
+    for symbol in ("XAUUSD=X", "GC=F"):
+        intraday = safe_download(symbol, period="1d", interval="1m")
+        if intraday.empty:
+            intraday = safe_download(symbol, period="5d", interval="15m")
+        if intraday.empty or "Close" not in intraday.columns:
+            continue
+
+        close = pd.to_numeric(intraday["Close"], errors="coerce").dropna()
+        if close.empty:
+            continue
+
+        curr = float(close.iloc[-1])
+        prev = float(close.iloc[-2]) if len(close) > 1 else curr
+        chg_fb = curr - prev
+        st.session_state["last_live_price"] = curr
+        st.session_state["last_live_change"] = chg_fb
+        return curr, chg_fb, f"yfinance ({symbol})", src
+
+    # Do not leave UI empty on temporary provider errors; keep last valid tick.
     last_p = st.session_state.get("last_live_price")
     if last_p is not None:
         last_chg = float(st.session_state.get("last_live_change", 0.0))
-        return float(last_p), last_chg, "GoldAPI (last valid tick)", src
+        return float(last_p), last_chg, "last valid tick", src
     return None, None, "none", src
 
 
