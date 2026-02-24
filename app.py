@@ -549,198 +549,79 @@ def compute_classic_signals(df: pd.DataFrame, live_price: float) -> dict:
     }
 
 
-def strategy_weights(profile: str) -> dict[str, float]:
-    profiles = {
-        "Scalp": {"classic": 0.6, "smc": 0.4},
-        "Intraday": {"classic": 0.5, "smc": 0.5},
-        "Swing": {"classic": 0.4, "smc": 0.6},
-    }
-    return profiles.get(profile, profiles["Intraday"])
-
-
-def get_dxy_growth() -> float | None:
-    dxy = safe_download("DX-Y.NYB", period="7d", interval="1h")
-    if dxy.empty or "Close" not in dxy.columns:
-        return None
-    close = pd.to_numeric(dxy["Close"], errors="coerce").dropna()
-    if len(close) < 24:
-        return None
-    base = float(close.iloc[-24])
-    if base == 0:
-        return None
-    return (float(close.iloc[-1]) - base) / base * 100.0
-
-
-def signal_strength_fa(abs_score: float) -> str:
-    if abs_score >= 75:
+def strength_from_ratio(ratio: float) -> str:
+    if ratio >= 0.75:
         return "قوی"
-    if abs_score >= 55:
+    if ratio >= 0.55:
         return "متوسط"
-    if abs_score >= 40:
+    if ratio >= 0.4:
         return "ضعیف"
     return "خنثی"
 
 
-def signed_signal_from_score(score: float) -> str:
-    abs_s = abs(score)
-    if abs_s < 40:
-        return "WAIT"
-    direction = "BUY" if score > 0 else "SELL"
-    strength = signal_strength_fa(abs_s)
-    if strength == "قوی":
-        return f"STRONG {direction}"
-    if strength == "متوسط":
-        return f"MEDIUM {direction}"
-    return f"WEAK {direction}"
+def classic_status_from_votes(buy_votes: int, sell_votes: int) -> str:
+    if buy_votes > sell_votes:
+        return "سیگنال خرید کلاسیک"
+    if sell_votes > buy_votes:
+        return "سیگنال فروش کلاسیک"
+    return "کلاسیک خنثی / انتظار"
 
 
-def compute_market_filters(df: pd.DataFrame) -> dict:
-    close = as_series(df["Close"], df.index, "close")
-    high = as_series(df["High"], df.index, "high")
-    low = as_series(df["Low"], df.index, "low")
-
-    atr = as_series(AverageTrueRange(high, low, close, window=14).average_true_range(), df.index, "atr")
-    atr_last = safe_last(atr, 0.0)
-    close_last = max(1e-9, safe_last(close, 1.0))
-    atr_pct = (atr_last / close_last) * 100.0
-    choppy = atr_pct < 0.08
-
-    volume_confirm = False
-    if "Volume" in df.columns:
-        vol = as_series(df["Volume"], df.index, "vol")
-        vol_ma = vol.rolling(20).mean()
-        if len(vol.dropna()) > 20 and len(vol_ma.dropna()) > 0:
-            volume_confirm = float(vol.iloc[-1]) > float(vol_ma.iloc[-1]) * 1.15
-
-    return {"atr_pct": atr_pct, "choppy": choppy, "volume_confirm": volume_confirm}
-
-
-def evaluate_classic_engine(classic: dict, df: pd.DataFrame) -> dict:
-    score = 0.0
-    reasons: list[str] = []
-
-    close_now = safe_last(as_series(df["Close"], df.index, "close_now"), 0.0)
-    ema200 = safe_last(classic["ema200"], close_now)
-    if close_now > ema200:
-        score += 30
-        reasons.append("+30 روند بالای EMA200")
-    else:
-        score -= 30
-        reasons.append("-30 روند زیر EMA200")
-
-    if classic["price_action"] == "BUY":
-        score += 20
-        reasons.append("+20 شکست/تمایل قیمتی صعودی")
-    elif classic["price_action"] == "SELL":
-        score -= 20
-        reasons.append("-20 شکست/تمایل قیمتی نزولی")
-
-    if classic["macd"] == "BUY":
-        score += 10
-        reasons.append("+10 تایید MACD")
-    elif classic["macd"] == "SELL":
-        score -= 10
-        reasons.append("-10 تایید MACD نزولی")
-
-    rsi_last = safe_last(classic["rsi"], 50.0)
-    if 30 <= rsi_last <= 70:
-        reasons.append("+5 RSI نرمال")
-        score += 5
-    elif rsi_last > 75:
-        reasons.append("-8 RSI اشباع خرید")
-        score -= 8
-    elif rsi_last < 25:
-        reasons.append("+8 RSI اشباع فروش")
-        score += 8
-
-    filters = compute_market_filters(df)
-    if filters["volume_confirm"]:
-        score += 8 if score >= 0 else -8
-        reasons.append("+8 تایید حجم")
-    else:
-        score -= 8 if score >= 0 else -8
-        reasons.append("-8 حرکت بدون تایید حجم")
-
-    if filters["choppy"]:
-        reasons.append("بازار کم‌نوسان: خروجی موتور کلاسیک WAIT")
-        return {"signal": "WAIT", "score": 0.0, "score_percent": 0.0, "strength": "خنثی", "reasons": reasons}
-
-    sig = signed_signal_from_score(score)
-    return {"signal": sig, "score": score, "score_percent": min(100.0, abs(score)), "strength": signal_strength_fa(abs(score)), "reasons": reasons}
+def evaluate_classic_engine(classic: dict) -> dict:
+    parts = {
+        "Price Action": classic.get("price_action", "NEUTRAL"),
+        "RSI": classic.get("momentum", "NEUTRAL"),
+        "Trend EMA": classic.get("trend", "NEUTRAL"),
+        "MACD": classic.get("macd", "NEUTRAL"),
+    }
+    buy_votes = sum(1 for v in parts.values() if v == "BUY")
+    sell_votes = sum(1 for v in parts.values() if v == "SELL")
+    dominant = max(buy_votes, sell_votes)
+    ratio = dominant / 4.0
+    signal = "BUY" if buy_votes > sell_votes else "SELL" if sell_votes > buy_votes else "NEUTRAL"
+    return {
+        "signal": signal,
+        "power_percent": ratio * 100.0,
+        "strength": strength_from_ratio(ratio),
+        "status": classic_status_from_votes(buy_votes, sell_votes),
+        "parts": parts,
+    }
 
 
-def evaluate_poursamadi_engine(porsamadi: dict) -> dict:
-    score = 0.0
-    reasons: list[str] = []
-    bullish_bos = bool(porsamadi.get("bullish_bos", False))
-    bearish_bos = bool(porsamadi.get("bearish_bos", False))
-    htf = str(porsamadi.get("htf_trend", "NEUTRAL"))
+def evaluate_poursamadi_engine(p: dict) -> dict:
+    bullish_bos = bool(p.get("bullish_bos", False))
+    bearish_bos = bool(p.get("bearish_bos", False))
+    htf = str(p.get("htf_trend", "NEUTRAL"))
 
-    # Softened logic: BOS + HTF trend is enough for directional call.
     if bullish_bos and htf == "BULLISH":
-        score += 78
-        reasons.append("+78 BOS صعودی + تایید HTF")
-    elif bearish_bos and htf == "BEARISH":
-        score -= 78
-        reasons.append("-78 BOS نزولی + تایید HTF")
-    elif bullish_bos:
-        score += 52
-        reasons.append("+52 BOS صعودی بدون تایید کامل HTF")
-    elif bearish_bos:
-        score -= 52
-        reasons.append("-52 BOS نزولی بدون تایید کامل HTF")
-    else:
-        reasons.append("BOS معتبر دیده نشد")
-
-    sig = signed_signal_from_score(score)
-    return {"signal": sig, "score": score, "score_percent": min(100.0, abs(score)), "strength": signal_strength_fa(abs(score)), "reasons": reasons}
-
-
-def normalize_engine_signal(sig: str) -> str:
-    if "BUY" in sig:
-        return "BUY"
-    if "SELL" in sig:
-        return "SELL"
-    return "NEUTRAL"
-
-
-def aggregate_signal(
-    classic_raw: dict, classic_eval: dict, smc_eval: dict, profile: str, dxy_growth: float | None
-) -> tuple[str, float, dict]:
-    w = strategy_weights(profile)
-    final_score = classic_eval["score"] * w["classic"] + smc_eval["score"] * w["smc"]
-    reasons = [f"{classic_eval['score']:+.0f} امتیاز Classic", f"{smc_eval['score']:+.0f} امتیاز Poursamadi"]
-
-    # Dynamic DXY effect: ignore when ranging.
-    if dxy_growth is not None:
-        if abs(dxy_growth) < 0.2:
-            reasons.append("DXY در رنج: بدون اثر منفی بر طلا")
-        elif dxy_growth > 0.35 and final_score > 0:
-            final_score -= 15
-            reasons.append("-15 رشد قوی DXY، تضعیف خرید طلا")
-        elif dxy_growth < -0.35 and final_score < 0:
-            final_score += 8
-            reasons.append("+8 تضعیف DXY، کاهش فشار فروش طلا")
-
-    final_signal = signed_signal_from_score(final_score)
-    confidence = min(0.95, 0.5 + min(0.45, abs(final_score) / 120.0))
-    final_strength = signal_strength_fa(abs(final_score))
-
-    indicator_signals = {
-        "Price Action": classic_raw.get("price_action", "NEUTRAL"),
-        "RSI": classic_raw.get("momentum", "NEUTRAL"),
-        "Trend EMA": classic_raw.get("trend", "NEUTRAL"),
-        "MACD": classic_raw.get("macd", "NEUTRAL"),
-        "Poursamadi": normalize_engine_signal(smc_eval["signal"]),
-    }
-
-    return final_signal, confidence, {
-        **indicator_signals,
-        "total_score": final_score,
-        "score_percent": min(100.0, abs(final_score)),
-        "strength": final_strength,
-        "reasons": reasons,
-    }
+        return {
+            "signal": "BUY",
+            "power_percent": 85.0,
+            "strength": "قوی",
+            "status": "ساختار صعودی - تایید تایم‌فریم بالاتر - منتظر بازگشت یا ادامه",
+        }
+    if bearish_bos and htf == "BEARISH":
+        return {
+            "signal": "SELL",
+            "power_percent": 85.0,
+            "strength": "قوی",
+            "status": "ساختار نزولی - تایید تایم‌فریم بالاتر - منتظر بازگشت یا ادامه",
+        }
+    if bullish_bos:
+        return {
+            "signal": "BUY",
+            "power_percent": 60.0,
+            "strength": "متوسط",
+            "status": "BOS صعودی دیده شد - تایم‌فریم بالاتر هنوز قطعی نیست",
+        }
+    if bearish_bos:
+        return {
+            "signal": "SELL",
+            "power_percent": 60.0,
+            "strength": "متوسط",
+            "status": "BOS نزولی دیده شد - تایم‌فریم بالاتر هنوز قطعی نیست",
+        }
+    return {"signal": "NEUTRAL", "power_percent": 25.0, "strength": "خنثی", "status": "ساختار خنثی - منتظر شکست معتبر"}
 
 
 def signal_class(signal: str) -> str:
@@ -933,36 +814,30 @@ def render_live_price_box(
     live_price: float,
     price_change: float | None,
     source: str,
-    final_signal: str,
-    confidence: float,
-    score_percent: float,
-    total_score: float,
     labels: dict[str, str],
 ) -> None:
     st.markdown(
-        live_price_html(
-            live_price, price_change, source, final_signal, confidence, score_percent, total_score, labels
-        ),
+        live_price_html(live_price, price_change, source, labels),
         unsafe_allow_html=True,
     )
 
 
 
 
-def render_poursamadi_box(porsamadi: dict, labels: dict[str, str]) -> None:
+def render_poursamadi_box(porsamadi_eval: dict, labels: dict[str, str]) -> None:
     st.markdown(mini_box_open_html(), unsafe_allow_html=True)
     st.markdown(f"### {labels['smc_engine']}")
     st.markdown(
         f"""
 <div class="metric-card porsamadi-card">
   <div class="porsamadi-row">
-    <span class="metric-label">Signal ({porsamadi.get('strength','خنثی')})</span>
-    {signal_badge_html(porsamadi.get('signal','WAIT'))}
+    <span class="metric-label">Signal ({porsamadi_eval.get('strength','خنثی')})</span>
+    {signal_badge_html(porsamadi_eval.get('signal','NEUTRAL'))}
   </div>
   <div class="strength-bar engine-strength">
-    <div class="strength-fill" style="width:{float(porsamadi.get('score_percent', 0.0)):.1f}%;"></div>
+    <div class="strength-fill" style="width:{float(porsamadi_eval.get('power_percent', 0.0)):.1f}%;"></div>
   </div>
-  <div class="porsamadi-reason">دلیل: {porsamadi_reason_fa(porsamadi) if not porsamadi.get('reasons') else porsamadi['reasons'][0]}</div>
+  <div class="porsamadi-reason">وضعیت: {porsamadi_eval.get('status','ساختار خنثی')}</div>
 </div>
 """,
         unsafe_allow_html=True,
@@ -978,12 +853,18 @@ def render_classic_box(classic_eval: dict, labels: dict[str, str]) -> None:
 <div class="metric-card porsamadi-card">
   <div class="porsamadi-row">
     <span class="metric-label">Signal ({classic_eval.get('strength','خنثی')})</span>
-    {signal_badge_html(classic_eval.get('signal','WAIT'))}
+    {signal_badge_html(classic_eval.get('signal','NEUTRAL'))}
   </div>
   <div class="strength-bar engine-strength">
-    <div class="strength-fill" style="width:{float(classic_eval.get('score_percent', 0.0)):.1f}%;"></div>
+    <div class="strength-fill" style="width:{float(classic_eval.get('power_percent', 0.0)):.1f}%;"></div>
   </div>
-  <div class="porsamadi-reason">دلیل: {' | '.join(classic_eval.get('reasons', [])[:2])}</div>
+  <div class="porsamadi-reason">وضعیت: {classic_eval.get('status','کلاسیک خنثی')}</div>
+  <div class="logic-grid" style="margin-top:8px;">
+    <span class="logic-item">Price Action: {signal_badge_html(classic_eval.get('parts',{}).get('Price Action','NEUTRAL'))}</span>
+    <span class="logic-item">RSI: {signal_badge_html(classic_eval.get('parts',{}).get('RSI','NEUTRAL'))}</span>
+    <span class="logic-item">Trend EMA: {signal_badge_html(classic_eval.get('parts',{}).get('Trend EMA','NEUTRAL'))}</span>
+    <span class="logic-item">MACD: {signal_badge_html(classic_eval.get('parts',{}).get('MACD','NEUTRAL'))}</span>
+  </div>
 </div>
 """,
         unsafe_allow_html=True,
@@ -991,36 +872,12 @@ def render_classic_box(classic_eval: dict, labels: dict[str, str]) -> None:
     st.markdown(mini_box_close_html(), unsafe_allow_html=True)
 
 
-def render_signal_monitor(engine_signals: dict, theme: str, labels: dict[str, str]) -> None:
-    st.markdown(mini_box_open_html(), unsafe_allow_html=True)
-    st.markdown(f"### {labels['signal_monitor']}")
-    engines = get_engine_subset(engine_signals)
-    badges = "".join(
-        [f'<span class="logic-item">{name}: {signal_badge_html(sig)}</span>' for name, sig in engines.items()]
-    )
-    st.markdown(f'<div class="logic-grid">{badges}</div>', unsafe_allow_html=True)
-    render_signal_micro_chart(engines, theme, labels["signal_monitor"])
-    reasons = engine_signals.get("reasons", [])
-    if reasons:
-        st.markdown("**امتیازدهی:**")
-        for item in reasons:
-            st.write(f"- {item}")
-    st.markdown(mini_box_close_html(), unsafe_allow_html=True)
-
-
-def render_engine_details_table(engine_signals: dict) -> None:
-    engines = get_engine_subset(engine_signals)
-    d = pd.DataFrame({"Engine": list(engines.keys()), "Signal": list(engines.values())})
-    st.dataframe(d, use_container_width=True, hide_index=True)
-
-
 def main() -> None:
-    controls = st.columns([1, 1, 1, 1, 1, 2])
+    controls = st.columns([1, 1, 1, 1, 4])
     language = controls[0].selectbox("Language", ["English", "فارسی"], key="ui_lang")
     theme = controls[1].selectbox("Theme", ["Dark", "Light"], key="ui_theme")
     timeframe = controls[2].selectbox("TF", ["5m", "15m", "1h", "4h", "1d"], key="signal_timeframe")
-    strategy = controls[3].selectbox("Strategy", ["Scalp", "Intraday", "Swing"], key="strategy_profile")
-    style = controls[4].selectbox("Style", ["Minimal Pro", "Glass"], key="ui_style")
+    style = controls[3].selectbox("Style", ["Minimal Pro", "Glass"], key="ui_style")
     labels = get_texts(language)
     load_css(theme, style)
 
@@ -1064,29 +921,18 @@ def main() -> None:
 
     classic = compute_classic_signals(df, live_price)
     porsamadi_raw = compute_porsamadi(df, df_htf, live_price)
-    classic_eval = evaluate_classic_engine(classic, df)
+    classic_eval = evaluate_classic_engine(classic)
     smc_eval = evaluate_poursamadi_engine(porsamadi_raw)
-    dxy_growth = get_dxy_growth()
-    final_signal, confidence, engine_signals = aggregate_signal(classic, classic_eval, smc_eval, strategy, dxy_growth)
 
-    total_score = float(engine_signals.get("total_score", 0.0))
-    score_percent = float(engine_signals.get("score_percent", 0.0))
-    render_live_price_box(live_price, price_change, source, final_signal, confidence, score_percent, total_score, labels)
-    st.caption(
-        f"Timeframe: {timeframe} | HTF: {htf_interval} | Strategy: {strategy} | Style: {style} | Analysis data: {analysis_symbol}"
-    )
+    render_live_price_box(live_price, price_change, source, labels)
+    st.caption(f"Timeframe: {timeframe} | HTF: {htf_interval} | Style: {style} | Analysis data: {analysis_symbol}")
 
     c1, c2 = st.columns(2)
     with c1:
         render_classic_box(classic_eval, labels)
     with c2:
         render_poursamadi_box(smc_eval, labels)
-
-    render_signal_monitor(engine_signals, theme, labels)
-
     render_fundamental_box(labels)
-
-    render_engine_details_table(engine_signals)
 
 
 if __name__ == "__main__":
