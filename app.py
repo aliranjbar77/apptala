@@ -557,7 +557,20 @@ def strategy_weights(profile: str) -> dict[str, float]:
     return profiles.get(profile, profiles["Intraday"])
 
 
-def aggregate_signal(classic: dict, porsamadi: dict, profile: str) -> tuple[str, float, dict]:
+def get_dxy_growth() -> float | None:
+    dxy = safe_download("DX-Y.NYB", period="7d", interval="1h")
+    if dxy.empty or "Close" not in dxy.columns:
+        return None
+    close = pd.to_numeric(dxy["Close"], errors="coerce").dropna()
+    if len(close) < 24:
+        return None
+    base = float(close.iloc[-24])
+    if base == 0:
+        return None
+    return (float(close.iloc[-1]) - base) / base * 100.0
+
+
+def aggregate_signal(classic: dict, porsamadi: dict, profile: str, df: pd.DataFrame, dxy_growth: float | None) -> tuple[str, float, dict]:
     engines = {
         "Price Action": classic["price_action"],
         "RSI": classic["momentum"],
@@ -566,30 +579,137 @@ def aggregate_signal(classic: dict, porsamadi: dict, profile: str) -> tuple[str,
         "Poursamadi": porsamadi["signal"],
     }
 
-    w = strategy_weights(profile)
-    buy_score = sum(w.get(k, 1.0) for k, v in engines.items() if v == "BUY")
-    sell_score = sum(w.get(k, 1.0) for k, v in engines.items() if v == "SELL")
-    total = sum(w.values())
-    delta = buy_score - sell_score
-    norm = abs(delta) / max(total, 1e-6)
+    total_score = 0.0
+    reasons: list[str] = []
 
-    if delta >= 0.62 * total:
-        sig = "STRONG BUY"
-        conf = 0.85 + min(0.1, norm * 0.1)
-    elif delta <= -0.62 * total:
-        sig = "STRONG SELL"
-        conf = 0.85 + min(0.1, norm * 0.1)
-    elif delta > 0.15:
-        sig = "BUY"
-        conf = 0.6 + min(0.25, norm * 0.28)
-    elif delta < -0.15:
-        sig = "SELL"
-        conf = 0.6 + min(0.25, norm * 0.28)
+    ema200_last = safe_last(classic["ema200"], 0.0)
+    close_last = 1.0
+    if "Close" in df.columns:
+        close_last = max(1e-9, safe_last(as_series(df["Close"], df.index, "close_now"), 1.0))
+
+    # 1) Core scoring blocks
+    if ema200_last > 0 and close_last > ema200_last:
+        total_score += 30
+        reasons.append("+30 بابت روند صعودی بالای EMA200")
+    elif ema200_last > 0:
+        total_score -= 30
+        reasons.append("-30 بابت روند نزولی زیر EMA200")
+
+    if porsamadi.get("bullish_bos", False):
+        total_score += 30
+        reasons.append("+30 بابت شکست ساختار صعودی (BOS)")
+    elif porsamadi.get("bearish_bos", False):
+        total_score -= 30
+        reasons.append("-30 بابت شکست ساختار نزولی (BOS)")
+
+    if classic["macd"] == "BUY":
+        total_score += 10
+        reasons.append("+10 بابت تایید MACD")
+    elif classic["macd"] == "SELL":
+        total_score -= 10
+        reasons.append("-10 بابت تایید MACD نزولی")
+
+    rsi_last = safe_last(classic["rsi"], 50.0)
+    if 30 <= rsi_last <= 70:
+        if total_score < 0:
+            total_score += 6
+            reasons.append("+6 بابت RSI غیر اشباع (کاهش امتیاز منفی)")
+        elif total_score > 0:
+            total_score += 4
+            reasons.append("+4 بابت RSI غیر اشباع (پایداری حرکت)")
+    elif rsi_last > 75:
+        total_score -= 8
+        reasons.append("-8 بابت RSI اشباع خرید")
+    elif rsi_last < 25:
+        total_score += 8
+        reasons.append("+8 بابت RSI اشباع فروش")
+
+    # 2) Profile weighting modifier (strategic profile)
+    profile_w = strategy_weights(profile)
+    profile_mod = 0.0
+    for engine_name, sig in engines.items():
+        if sig == "BUY":
+            profile_mod += (profile_w.get(engine_name, 1.0) - 1.0) * 8.0
+        elif sig == "SELL":
+            profile_mod -= (profile_w.get(engine_name, 1.0) - 1.0) * 8.0
+    if abs(profile_mod) > 0.2:
+        total_score += profile_mod
+        reasons.append(f"{profile_mod:+.0f} بابت وزن‌دهی پروفایل {profile}")
+
+    # 3) Volume confirmation
+    volume_confirm = False
+    if "Volume" in df.columns:
+        vol = pd.to_numeric(df["Volume"], errors="coerce")
+        vol_ma = vol.rolling(20).mean()
+        if len(vol.dropna()) > 20 and len(vol_ma.dropna()) > 0:
+            volume_confirm = float(vol.iloc[-1]) > float(vol_ma.iloc[-1]) * 1.15
+            if total_score > 0:
+                total_score += 10 if volume_confirm else -10
+                reasons.append("+10 تایید حجم" if volume_confirm else "-10 حرکت بدون تایید حجم")
+            elif total_score < 0:
+                total_score -= 10 if volume_confirm else -10
+                reasons.append("-10 تایید حجم فروش" if volume_confirm else "+10 فروش بدون تایید حجم (تضعیف)")
+
+    # 4) ATR-based choppy market filter
+    atr_pct = 0.0
+    if all(c in df.columns for c in ["High", "Low", "Close"]):
+        h = as_series(df["High"], df.index, "h")
+        l = as_series(df["Low"], df.index, "l")
+        c = as_series(df["Close"], df.index, "c")
+        atr = as_series(AverageTrueRange(h, l, c, window=14).average_true_range(), df.index, "atr")
+        atr_last = safe_last(atr, 0.0)
+        close_last = max(1e-9, safe_last(c, close_last))
+        atr_pct = (atr_last / close_last) * 100.0
+
+    if atr_pct > 0 and atr_pct < 0.08:
+        reasons.append("بازار کم‌نوسان (Choppy) با ATR پایین: سیگنال فیلتر شد")
+        return "WAIT", 0.5, {
+            **engines,
+            "total_score": 0.0,
+            "score_percent": 0.0,
+            "reasons": reasons,
+            "volume_confirm": volume_confirm,
+            "atr_pct": atr_pct,
+        }
+
+    # 5) DXY fundamental weakening for gold buy
+    if dxy_growth is not None and dxy_growth >= 0.35:
+        if total_score > 0:
+            total_score -= 20
+            reasons.append("-20 بابت رشد قوی DXY (تضعیف خرید طلا)")
+        elif total_score < 0:
+            total_score -= 6
+            reasons.append("-6 بابت رشد قوی DXY (تقویت سناریوی فروش)")
+
+    # 6) Weak-signal filter
+    directional = "BUY" if total_score > 0 else "SELL" if total_score < 0 else "NEUTRAL"
+    aligned_indicators = sum(1 for v in engines.values() if v == directional)
+    if aligned_indicators <= 1:
+        reasons.append("فقط یک اندیکاتور هم‌جهت است: وضعیت WAIT")
+        signal = "WAIT"
+        confidence = 0.5
     else:
-        sig = "NEUTRAL"
-        conf = 0.5
+        if total_score >= 70:
+            signal = "STRONG BUY"
+        elif total_score <= -70:
+            signal = "STRONG SELL"
+        elif total_score >= 35:
+            signal = "BUY"
+        elif total_score <= -35:
+            signal = "SELL"
+        else:
+            signal = "NEUTRAL"
+        confidence = min(0.95, 0.5 + min(0.45, abs(total_score) / 120.0))
 
-    return sig, min(conf, 0.95), engines
+    score_percent = min(100.0, abs(total_score))
+    return signal, confidence, {
+        **engines,
+        "total_score": total_score,
+        "score_percent": score_percent,
+        "reasons": reasons,
+        "volume_confirm": volume_confirm,
+        "atr_pct": atr_pct,
+    }
 
 
 def signal_class(signal: str) -> str:
@@ -605,7 +725,13 @@ def signal_badge_html(signal: str) -> str:
     return f'<span class="signal-pill {cls}">{signal}</span>'
 
 
+def get_engine_subset(engine_signals: dict) -> dict:
+    keys = ["Price Action", "RSI", "Trend EMA", "MACD", "Poursamadi"]
+    return {k: engine_signals.get(k, "NEUTRAL") for k in keys}
+
+
 def render_signal_micro_chart(engine_signals: dict, theme: str, title: str):
+    engine_signals = get_engine_subset(engine_signals)
     mapping = {"BUY": 1, "SELL": -1, "NEUTRAL": 0}
     labels = list(engine_signals.keys())
     vals = [mapping.get(engine_signals[k], 0) for k in labels]
@@ -777,10 +903,14 @@ def render_live_price_box(
     source: str,
     final_signal: str,
     confidence: float,
+    score_percent: float,
+    total_score: float,
     labels: dict[str, str],
 ) -> None:
     st.markdown(
-        live_price_html(live_price, price_change, source, final_signal, confidence, labels),
+        live_price_html(
+            live_price, price_change, source, final_signal, confidence, score_percent, total_score, labels
+        ),
         unsafe_allow_html=True,
     )
 
@@ -808,16 +938,23 @@ def render_poursamadi_box(porsamadi: dict, labels: dict[str, str]) -> None:
 def render_signal_monitor(engine_signals: dict, theme: str, labels: dict[str, str]) -> None:
     st.markdown(mini_box_open_html(), unsafe_allow_html=True)
     st.markdown(f"### {labels['signal_monitor']}")
+    engines = get_engine_subset(engine_signals)
     badges = "".join(
-        [f'<span class="logic-item">{name}: {signal_badge_html(sig)}</span>' for name, sig in engine_signals.items()]
+        [f'<span class="logic-item">{name}: {signal_badge_html(sig)}</span>' for name, sig in engines.items()]
     )
     st.markdown(f'<div class="logic-grid">{badges}</div>', unsafe_allow_html=True)
-    render_signal_micro_chart(engine_signals, theme, labels["signal_monitor"])
+    render_signal_micro_chart(engines, theme, labels["signal_monitor"])
+    reasons = engine_signals.get("reasons", [])
+    if reasons:
+        st.markdown("**امتیازدهی:**")
+        for item in reasons:
+            st.write(f"- {item}")
     st.markdown(mini_box_close_html(), unsafe_allow_html=True)
 
 
 def render_engine_details_table(engine_signals: dict) -> None:
-    d = pd.DataFrame({"Engine": list(engine_signals.keys()), "Signal": list(engine_signals.values())})
+    engines = get_engine_subset(engine_signals)
+    d = pd.DataFrame({"Engine": list(engines.keys()), "Signal": list(engines.values())})
     st.dataframe(d, use_container_width=True, hide_index=True)
 
 
@@ -871,9 +1008,12 @@ def main() -> None:
 
     classic = compute_classic_signals(df, live_price)
     porsamadi = compute_porsamadi(df, df_htf, live_price)
-    final_signal, confidence, engine_signals = aggregate_signal(classic, porsamadi, strategy)
+    dxy_growth = get_dxy_growth()
+    final_signal, confidence, engine_signals = aggregate_signal(classic, porsamadi, strategy, df, dxy_growth)
 
-    render_live_price_box(live_price, price_change, source, final_signal, confidence, labels)
+    total_score = float(engine_signals.get("total_score", 0.0))
+    score_percent = float(engine_signals.get("score_percent", 0.0))
+    render_live_price_box(live_price, price_change, source, final_signal, confidence, score_percent, total_score, labels)
     st.caption(
         f"Timeframe: {timeframe} | HTF: {htf_interval} | Strategy: {strategy} | Style: {style} | Analysis data: {analysis_symbol}"
     )
