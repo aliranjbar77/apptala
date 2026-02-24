@@ -300,18 +300,30 @@ def get_analysis_data(period: str, interval: str, min_bars: int) -> tuple[pd.Dat
 
 def get_goldapi_live() -> tuple[float | None, float | None, str]:
     try:
-        headers = {"x-access-token": st.secrets["GOLD_API_KEY"], "Content-Type": "application/json"}
+        headers = {
+            "x-access-token": st.secrets["GOLD_API_KEY"],
+            "Content-Type": "application/json",
+            "Cache-Control": "no-cache",
+            "Pragma": "no-cache",
+        }
     except Exception:
         return None, None, "GoldAPI key not found"
 
     try:
-        resp = requests.get("https://www.goldapi.io/api/XAU/USD", headers=headers, timeout=10)
+        resp = requests.get(
+            "https://www.goldapi.io/api/XAU/USD",
+            headers=headers,
+            params={"cache": "false"},
+            timeout=10,
+        )
         if resp.status_code in {400, 401, 404}:
             return None, None, f"GoldAPI status={resp.status_code}"
         if resp.status_code != 200:
             return None, None, f"GoldAPI status={resp.status_code}"
         payload = resp.json()
-        current_price = float(payload.get("price"))
+        if "price" not in payload:
+            return None, None, "GoldAPI invalid payload (missing price)"
+        current_price = float(payload["price"])
         prev = float(payload.get("prev_day_price", current_price))
         return current_price, current_price - prev, "GoldAPI"
     except Exception as exc:
@@ -338,12 +350,7 @@ def get_live_gold_price() -> tuple[float | None, float | None, str, str]:
     p, chg, src = get_goldapi_live()
     if p is not None:
         return p, chg, src, "ok"
-
-    bp, bchg, bsrc = get_yf_live_backup()
-    if bp is not None:
-        return bp, bchg, bsrc, src
-
-    return None, None, "none", f"{src} | {bsrc}"
+    return None, None, "none", src
 
 
 def fetch_fear_greed() -> tuple[float | None, str]:
